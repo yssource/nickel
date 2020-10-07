@@ -96,6 +96,7 @@ use crate::stack::Stack;
 use crate::term::{RichTerm, StrChunk, Term, UnaryOp};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
 use std::rc::{Rc, Weak};
 
 /// An environment, which is a mapping from identifiers to closures.
@@ -171,6 +172,9 @@ where
     let mut enriched_strict = true;
 
     loop {
+        println!("EVAL LOOP ---------");
+        println!("Evaluating: {}", clos);
+
         let Closure {
             body: RichTerm {
                 term: boxed_term,
@@ -179,6 +183,7 @@ where
             mut env,
         } = clos;
         let term = *boxed_term;
+
         clos = match term {
             Term::Var(x) => {
                 let (thunk, id_kind) = env
@@ -471,6 +476,77 @@ fn update_thunks(stack: &mut Stack, closure: &Closure) {
     while let Some(thunk) = stack.pop_thunk() {
         if let Some(safe_thunk) = Weak::upgrade(&thunk) {
             *safe_thunk.borrow_mut() = closure.clone();
+        }
+    }
+}
+
+impl fmt::Display for Closure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let Closure { body, env } = self;
+
+        write!(f, "<closure:\n")?;
+        write!(f, "{}\n", pprint::fmt_indent(body, false))?;
+        write!(f, "| in env:\n")?;
+        write!(
+            f,
+            "{}",
+            pprint::fmt_indent(&pprint::EnvFormatter::from_env(env), false)
+        )?;
+        write!(f, ">")
+    }
+}
+
+mod pprint {
+    use super::*;
+    use std::fmt::Write;
+
+    pub struct EnvFormatter<'a>(&'a Environment);
+
+    impl<'a> EnvFormatter<'a> {
+        pub fn from_env(env: &'a Environment) -> Self {
+            EnvFormatter(env)
+        }
+    }
+
+    pub fn fmt_indent<D>(val: &D, skip_fst: bool) -> String
+    where
+        D: fmt::Display,
+    {
+        let mut buffer = String::new();
+        write!(&mut buffer, "{}", val).unwrap();
+        let lines: Vec<String> = buffer
+            .lines()
+            .enumerate()
+            .map(|(u, s)| {
+                if u == 0 && skip_fst {
+                    String::from(s)
+                } else {
+                    format!("  {}", s)
+                }
+            })
+            .collect();
+        lines.join("\n")
+    }
+
+    impl<'a> fmt::Display for EnvFormatter<'a> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "<env:{{")?;
+
+            if self.0.len() > 1 {
+                write!(f, "\n")?;
+            }
+
+            self.0.iter().try_for_each(|(id, (rc, _))| {
+                write!(f, "{} = {};", id, fmt_indent(&rc.borrow(), true))?;
+
+                if self.0.len() > 1 {
+                    write!(f, "\n")?;
+                }
+
+                Ok(())
+            })?;
+
+            write!(f, "}}>")
         }
     }
 }

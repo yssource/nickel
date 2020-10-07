@@ -17,12 +17,13 @@
 //! the term level, and together with [merge](../merge/index.html), they allow for flexible and
 //! modular definitions of contracts, record and metadata all together.
 use crate::identifier::Ident;
-use std::fmt;
 use crate::label::Label;
 use crate::position::RawSpan;
 use crate::types::{AbsType, Types};
 use codespan::FileId;
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Write;
 
 /// The AST of a Nickel expression.
 ///
@@ -920,12 +921,12 @@ impl RichTerm {
 
 impl fmt::Display for RichTerm {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.term.as_ref()) 
+        write!(f, "{}", self.term.as_ref())
     }
 }
 
 impl fmt::Display for Term {
-   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Term::Bool(b) => write!(f, "{}", b),
             Term::Num(n) => write!(f, "{}", n),
@@ -934,9 +935,9 @@ impl fmt::Display for Term {
                 write!(f, "fun {}", id)?;
                 let mut next: &Term = body.term.as_ref();
 
-                while let Fun(id, body) = *next {
+                while let Term::Fun(id, body) = next {
                     write!(f, " {}", id)?;
-                    next = body.term;
+                    next = body.term.as_ref();
                 }
 
                 write!(f, " => {}", next)
@@ -947,15 +948,25 @@ impl fmt::Display for Term {
                 write!(f, "{{")?;
 
                 if map.len() > 1 {
-                    write!(f, "\n");    
+                    write!(f, "\n")?;
                 }
 
                 map.iter().try_for_each(|(id, t)| {
                     let mut buffer = String::new();
                     write!(&mut buffer, "{}", t)?;
-                    buffer = buffer.lines().enumerate().map(|s| format!("  {}", s)).collect();
+                    buffer = buffer
+                        .lines()
+                        .enumerate()
+                        .map(|(u, s)| {
+                            if u == 0 {
+                                String::from(s)
+                            } else {
+                                format!("  {}", s)
+                            }
+                        })
+                        .collect();
 
-                    write!(f, "{} = {};", id, buffer)?; 
+                    write!(f, "  {} = {};", id, buffer)?;
 
                     if map.len() > 1 {
                         write!(f, "\n")?;
@@ -964,31 +975,38 @@ impl fmt::Display for Term {
                     Ok(())
                 })?;
 
-                write!(f, "{{")
+                write!(f, "}}")
             }
             Term::List(l) => {
                 write!(f, "[")?;
-                l.iter().try_for_each(|t| {
-                    write!(f, " {},", t)
-                })?;
+                l.iter().try_for_each(|t| write!(f, " {},", t))?;
                 write!(f, "]")
-            },
+            }
             Term::Sym(i) => write!(f, "<sym {}>", i),
             Term::Wrapped(i, t) => write!(f, "<wrapped({}):{} >", i, t),
             Term::Contract(ty, _) => write!(f, "Contract({})", ty),
             Term::ContractWithDefault(ty, _, t) => write!(f, "ContractDefault({}, {})", ty, t),
             Term::Docstring(s, t) => write!(f, "Docstring({}, {})", s, t),
             Term::DefaultValue(t) => write!(f, "Default({})", t),
-            Term::Let(id, bound, t) => write!("let {} = {} in {}", id, bound, t),
-            Term::App(t1, t2) => write!("({}) ({})", t1, t2),
+            Term::Let(id, bound, t) => write!(f, "let {} = {} in {}", id, bound, t),
+            Term::App(t1, t2) => write!(f, "({}) ({})", t1, t2),
             Term::Var(id) => write!(f, "{}", id),
-            Term::Op1(op, t) => write!(f, "op1 {}", t),
-            Term::Op2(op, t1, t2) => write!(f, "op2 {} {}", t1, t2),
+            Term::Op1(_op, t) => write!(f, "op1 {}", t),
+            Term::Op2(_op, t1, t2) => write!(f, "op2 {} {}", t1, t2),
             Term::Promise(ty, _, t) => write!(f, "Promise({}, {})", ty, t),
             Term::Assume(ty, _, t) => write!(f, "Assume({}, {})", ty, t),
             Term::Import(s) => write!(f, "import \"{}\"", s),
             Term::ResolvedImport(_) => write!(f, "import <resolved>"),
-            Term::StrChunks(_) => None,
+            Term::StrChunks(chunks) => {
+                write!(f, "\"")?;
+
+                chunks.iter().rev().try_for_each(|chunk| match chunk {
+                    StrChunk::Literal(s) => write!(f, "{}", s),
+                    StrChunk::Expr(e) => write!(f, "${{{}}}", e),
+                })?;
+
+                write!(f, "\"")
+            }
         }
     }
 }
