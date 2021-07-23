@@ -9,6 +9,13 @@ use std::{fs, process};
 // use std::ffi::OsStr;
 use structopt::StructOpt;
 
+#[cfg(feature = "memprofile")]
+use dhat::{Dhat, DhatAlloc};
+
+#[cfg(feature = "memprofile")]
+#[global_allocator]
+static ALLOCATOR: DhatAlloc = DhatAlloc;
+
 /// Command-line options and subcommands.
 #[derive(StructOpt, Debug)]
 /// The interpreter of the Nickel language.
@@ -53,6 +60,9 @@ enum Command {
 }
 
 fn main() {
+    #[cfg(feature = "memprofile")]
+    let _dhat = Dhat::start_heap_profiling();
+
     let opts = Opt::from_args();
 
     if let Some(Command::REPL) = opts.command {
