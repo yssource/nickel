@@ -96,6 +96,7 @@ use crate::stack::Stack;
 use crate::term::{make as mk_term, MetaValue, RichTerm, StrChunk, Term, UnaryOp};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
+use std::fmt;
 use std::rc::{Rc, Weak};
 
 /// The state of a thunk.
@@ -297,6 +298,291 @@ impl Closure {
     }
 }
 
+pub fn display_in_env(
+    f: &mut fmt::Formatter,
+    t: &Term,
+    env: &Environment,
+    indent: u16,
+) -> fmt::Result {
+    fn need_paren(t: &Term) -> bool {
+        match t {
+            Term::Null
+            | Term::Bool(_)
+            | Term::Str(_)
+            | Term::Num(_)
+            | Term::Lbl(_)
+            | Term::Sym(_)
+            | Term::Enum(_)
+            | Term::Record(_)
+            | Term::RecRecord(_)
+            | Term::List(_)
+            | Term::StrChunks(_)
+            | Term::Wrapped(..)
+            | Term::Var(_) => false,
+            Term::MetaValue(MetaValue {
+                value: Some(val), ..
+            }) => need_paren(val.as_ref()),
+            Term::Fun(..)
+            | Term::App(..)
+            | Term::Let(..)
+            | Term::Switch(..)
+            | Term::Op1(..)
+            | Term::Op2(..)
+            | Term::OpN(..)
+            | Term::Import(_)
+            | Term::Promise(..)
+            | Term::ResolvedImport(_)
+            | Term::MetaValue(_) => true,
+        }
+    }
+
+    fn display_with_paren(
+        f: &mut fmt::Formatter,
+        t: &Term,
+        env: &Environment,
+        indent: u16,
+    ) -> fmt::Result {
+        if need_paren(t) {
+            write!(f, "(")?;
+            display_in_env(f, t, env, indent)?;
+            write!(f, ")")
+        } else {
+            display_in_env(f, t, env, indent)
+        }
+    }
+
+    let prefix = if indent != 0 {
+        (0..indent).map(|_| "  ").collect()
+    } else {
+        String::new()
+    };
+
+    write!(f, "{}", prefix)?;
+
+    match t {
+        Term::Null => write!(f, "null"),
+        Term::Bool(b) => write!(f, "{}", b),
+        Term::Num(n) => write!(f, "{}", n),
+        Term::Str(s) => write!(f, "{}", s),
+        Term::Fun(id, body) => {
+            write!(f, "fun {} ", id)?;
+            let mut current = body.as_ref();
+
+            loop {
+                match current {
+                    Term::Fun(id_next, body_next) => {
+                        write!(f, "{} ", id_next)?;
+                        current = body_next.as_ref();
+                    }
+                    t => {
+                        write!(f, "=> ")?;
+                        break display_in_env(f, t, env, indent);
+                    }
+                }
+            }
+        }
+        Term::Lbl(_) => write!(f, "<lbl>"),
+        Term::Enum(id) => write!(f, "`{}", id),
+        Term::Record(map) | Term::RecRecord(map) => {
+            write!(f, "{{\n{}", prefix)?;
+            let indent = indent + 1;
+            let prefix = format!("{}  ", prefix);
+
+            let mut iter = map.iter();
+
+            if let Some((id_fst, t_fst)) = iter.next() {
+                write!(f, "{} = ", id_fst)?;
+                display_in_env(f, t_fst.as_ref(), env, indent)?;
+            }
+
+            for (id_next, t_next) in iter.next() {
+                write!(f, ",\n{}", prefix)?;
+
+                let t_next = t_next.as_ref();
+                write!(f, "{} = ", id_next)?;
+                display_in_env(f, t_next, env, indent)?;
+            }
+
+            write!(f, "}}")
+        }
+        Term::List(ts) => {
+            write!(f, "[")?;
+
+            let mut iter = ts.iter();
+
+            if let Some(fst) = iter.next() {
+                display_in_env(f, fst.as_ref(), env, indent)?;
+            }
+
+            for next in iter.next() {
+                write!(f, ",")?;
+
+                let next = next.as_ref();
+                display_in_env(f, next, env, indent)?;
+            }
+
+            write!(f, "]")
+        }
+        Term::Sym(s) => write!(f, "<sym: {}>", s),
+        Term::Wrapped(s, t) => {
+            write!(f, "Wrapped({},", s)?;
+            display_in_env(f, t.as_ref(), env, indent)?;
+            write!(f, ")")
+        }
+        Term::MetaValue(t) => {
+            if let Some(v) = t.value.as_ref() {
+                display_in_env(f, v.as_ref(), env, indent)
+            } else {
+                Ok(())
+            }
+        }
+        Term::Let(id, bound, exp) => {
+            write!(f, "let {} = ", id)?;
+            display_in_env(f, bound.as_ref(), env, indent)?;
+            write!(f, " in\n{}", prefix)?;
+            display_in_env(f, exp.as_ref(), env, indent)
+        }
+        Term::App(t1, t2) => {
+            let mut stack = Vec::new();
+            stack.push(t2.as_ref());
+
+            let mut current = t1.as_ref();
+
+            loop {
+                match current {
+                    Term::App(t1_next, t2_next) => {
+                        stack.push(t2_next.as_ref());
+                        current = t1_next.as_ref();
+                    }
+                    t => {
+                        display_in_env(f, t, env, indent)?;
+                        break;
+                    }
+                }
+            }
+
+            for arg in stack.iter().rev() {
+                write!(f, " ")?;
+                display_with_paren(f, arg, env, indent)?;
+            }
+
+            Ok(())
+        }
+        Term::Var(id) if id.to_string().starts_with("%") => {
+            if let Some(thunk) = env.get(id) {
+                let b2 = thunk.borrow();
+                let Closure {
+                    body: ref body_var,
+                    env: ref env_var,
+                } = *b2;
+
+                display_in_env(f, body_var.as_ref(), env_var, indent)
+            }
+            else {
+                write!(f, "{}", id)
+            }
+        }
+        Term::Var(id) => write!(f, "{}", id),
+        Term::Switch(matched, cases, default) => {
+            write!(f, "match ")?;
+            display_in_env(f, matched.as_ref(), env, indent)?;
+            write!(f, " {{")?;
+
+            let mut iter = cases.iter();
+            let indent = indent + 1;
+            let prefix = format!("{}  ", prefix);
+
+            if let Some((id_fst, t_fst)) = iter.next() {
+                write!(f, "{} = ", id_fst)?;
+                display_in_env(f, t_fst.as_ref(), env, indent)?;
+            }
+
+            for (id_next, t_next) in iter.next() {
+                write!(f, ",\n{}", prefix)?;
+
+                let t_next = t_next.as_ref();
+                write!(f, "{} = ", id_next)?;
+                display_in_env(f, t_next, env, indent)?;
+            }
+
+            if let Some(t_default) = default {
+                write!(f, "_ => ")?;
+                display_in_env(f, t_default.as_ref(), env, indent)?;
+            }
+
+            Ok(())
+        }
+        Term::Op1(op, arg) => {
+            write!(f, "<{:?}> ", op)?;
+            display_with_paren(f, arg.as_ref(), env, indent)
+        }
+        Term::Op2(op, arg1, arg2) => {
+            write!(f, "<{:?}> ", op)?;
+            display_with_paren(f, arg1.as_ref(), env, indent)?;
+            write!(f, " ")?;
+            display_with_paren(f, arg2.as_ref(), env, indent)
+        }
+        Term::OpN(_op, args) => {
+            write!(f, "<opn>")?;
+
+            for arg in args.iter() {
+                write!(f, " ")?;
+                display_with_paren(f, arg.as_ref(), env, indent)?;
+            }
+
+            Ok(())
+        }
+        Term::Promise(_ty, _, t) => display_in_env(f, t.as_ref(), env, indent),
+        Term::Import(path) => {
+            write!(f, "import {}", path.to_string_lossy())
+        }
+        Term::ResolvedImport(_) => {
+            write!(f, "import <resolved>")
+        }
+        Term::StrChunks(chunks) => {
+            // String should be escaped
+            write!(f, "\"")?;
+
+            for chunk in chunks.iter().rev() {
+                match chunk {
+                    StrChunk::Literal(s) => {
+                        write!(f, "{}", s)?;
+                    }
+                    // Ignoring the indentation for now
+                    StrChunk::Expr(e, _) => {
+                        write!(f, "#{{")?;
+                        display_in_env(f, e.as_ref(), env, indent)?;
+                        write!(f, "}}")?;
+                    }
+                }
+            }
+
+            write!(f, "\"")
+        }
+    }
+}
+
+impl fmt::Display for Closure {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        display_in_env(f, self.body.as_ref(), &self.env, 0)
+    }
+}
+
+pub struct EnvWrapper(Environment);
+
+impl fmt::Debug for EnvWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<env:\n")?;
+
+        for (id, thunk) in self.0.iter() {
+            let borrow = thunk.borrow();
+            write!(f, "  {} => {}\n", id, borrow)?;
+        }
+
+        write!(f, ">")
+    }
+}
+
 /// Raised when trying to build an environment from a term which is not a record.
 #[derive(Clone, Debug)]
 pub enum EnvBuildError {
@@ -440,6 +726,9 @@ where
     let mut stack = Stack::new();
 
     loop {
+        eprintln!("=======================");
+        eprintln!("Evaluating {}", clos);
+
         let Closure {
             body: RichTerm {
                 term: boxed_term,
@@ -448,6 +737,8 @@ where
             mut env,
         } = clos;
         let term = *boxed_term;
+
+        // eprintln!("In {:?}\n", env);
 
         clos = match term {
             Term::Var(x) => {
@@ -490,6 +781,7 @@ where
                     body: s,
                     env: env.clone(),
                 };
+                eprintln!("Binding {} to {}", x, closure);
                 env.insert(x, Thunk::new(closure, IdentKind::Let()));
                 Closure { body: t, env }
             }
@@ -747,6 +1039,7 @@ where
             Term::Fun(x, t) => {
                 if let Some((thunk, pos_app)) = stack.pop_arg_as_thunk() {
                     call_stack.push(StackElem::App(pos_app));
+                    eprintln!("Enter function with param: {}", thunk.borrow());
                     env.insert(x, thunk);
                     Closure { body: t, env }
                 } else {
