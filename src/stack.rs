@@ -76,7 +76,7 @@ impl Marker {
 
 /// The evaluation stack.
 #[derive(Debug)]
-pub struct Stack(Vec<Marker>);
+pub struct Stack(pub Vec<Marker>);
 
 impl IntoIterator for Stack {
     type Item = Marker;
