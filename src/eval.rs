@@ -572,6 +572,7 @@ pub struct EnvWrapper(Environment);
 
 impl fmt::Debug for EnvWrapper {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        return Ok(());
         write!(f, "<env:\n")?;
 
         for (id, thunk) in self.0.iter() {
@@ -726,8 +727,12 @@ where
     let mut stack = Stack::new();
 
     loop {
-        eprintln!("=======================");
+        eprintln!("==================================");
         eprintln!("Evaluating {}", clos);
+
+        let stack_ : Vec<_> = stack.0.iter().rev().take(5).collect();
+        eprintln!("Stack: {:#?}\n", stack_);
+
 
         let Closure {
             body: RichTerm {
