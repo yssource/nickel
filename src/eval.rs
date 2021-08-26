@@ -698,7 +698,10 @@ impl fmt::Debug for Environment {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<env:\n")?;
 
-        for (id, thunk) in self.iter() {
+        let mut data : Vec<_> = self.iter().collect();
+        data.sort_by_key(|(key, _)| key.clone());
+
+        for (id, thunk) in data.iter() {
             let borrow = thunk.borrow();
             write!(f, "  {} => {}\n", id, borrow)?;
         }
