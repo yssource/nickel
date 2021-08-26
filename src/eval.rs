@@ -696,7 +696,6 @@ impl fmt::Display for Closure {
 
 impl fmt::Debug for Environment {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return Ok(());
         write!(f, "<env:\n")?;
 
         for (id, thunk) in self.iter() {
@@ -890,6 +889,10 @@ where
 {
     let mut call_stack = CallStack::new();
     let mut stack = Stack::new();
+
+    eprintln!("*************************************");
+    eprintln!("{:?}", global_env);
+    eprintln!("*************************************\n");
 
     loop {
         eprintln!("==================================");
