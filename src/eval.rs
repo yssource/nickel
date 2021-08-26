@@ -574,7 +574,10 @@ impl fmt::Debug for EnvWrapper {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<env:\n")?;
 
-        for (id, thunk) in self.0.iter() {
+        let mut data : Vec<_> = self.0.iter().collect();
+        data.sort_by_key(|(key, _)| *key);
+
+        for (id, thunk) in data.iter() {
             let borrow = thunk.borrow();
             write!(f, "  {} => {}\n", id, borrow)?;
         }
