@@ -572,7 +572,6 @@ pub struct EnvWrapper(Environment);
 
 impl fmt::Debug for EnvWrapper {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        return Ok(());
         write!(f, "<env:\n")?;
 
         for (id, thunk) in self.0.iter() {
@@ -725,6 +724,10 @@ where
 {
     let mut call_stack = CallStack::new();
     let mut stack = Stack::new();
+
+    eprintln!("*************************************");
+    eprintln!("{:?}", global_env);
+    eprintln!("*************************************\n");
 
     loop {
         eprintln!("==================================");
