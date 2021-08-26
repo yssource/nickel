@@ -730,8 +730,10 @@ where
         eprintln!("==================================");
         eprintln!("Evaluating {}", clos);
 
-        let stack_ : Vec<_> = stack.0.iter().rev().take(5).collect();
-        eprintln!("Stack: {:#?}\n", stack_);
+        // let stack_ : Vec<_> = stack.0.iter().rev().take(5).collect();
+        if !stack.0.is_empty() {
+            eprintln!("Stack: {:?}\n", stack.0.last().unwrap());
+        }
 
 
         let Closure {
@@ -742,8 +744,6 @@ where
             mut env,
         } = clos;
         let term = *boxed_term;
-
-        // eprintln!("In {:?}\n", env);
 
         clos = match term {
             Term::Var(x) => {
@@ -786,7 +786,6 @@ where
                     body: s,
                     env: env.clone(),
                 };
-                eprintln!("Binding {} to {}", x, closure);
                 env.insert(x, Thunk::new(closure, IdentKind::Let()));
                 Closure { body: t, env }
             }
@@ -1044,7 +1043,6 @@ where
             Term::Fun(x, t) => {
                 if let Some((thunk, pos_app)) = stack.pop_arg_as_thunk() {
                     call_stack.push(StackElem::App(pos_app));
-                    eprintln!("Enter function with param: {}", thunk.borrow());
                     env.insert(x, thunk);
                     Closure { body: t, env }
                 } else {
