@@ -95,7 +95,7 @@ impl fmt::Debug for Marker {
 
 impl fmt::Debug for Stack {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let stack_ : Vec<_> = self.0.iter().rev().take(5).collect();
+        let stack_ : Vec<_> = self.0.iter().rev().collect();
         write!(f, "{:#?}", stack_)
     }
 }
