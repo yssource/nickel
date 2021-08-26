@@ -726,7 +726,7 @@ where
     let mut stack = Stack::new();
 
     eprintln!("*************************************");
-    eprintln!("{:?}", global_env);
+    eprintln!("{:?}", EnvWrapper(global_env.clone()));
     eprintln!("*************************************\n");
 
     loop {
