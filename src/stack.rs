@@ -5,9 +5,10 @@ use crate::eval::{Closure, Environment, IdentKind, Thunk, ThunkUpdateFrame};
 use crate::operation::OperationCont;
 use crate::position::TermPos;
 use crate::term::{RichTerm, StrChunk};
+use std::fmt;
 
 /// An element of the stack.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub enum Marker {
     /// An equality to test.
     ///
@@ -48,6 +49,57 @@ pub enum Marker {
     ),
 }
 
+impl fmt::Debug for Marker {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Marker::Eq(c1, c2) => {
+                write!(f, "Eq: {} == {}", c1, c2)
+            }
+            Marker::Arg(c, _) => {
+                write!(f, "Arg: {}", c)
+            }
+            Marker::TrackedArg(c, _) => {
+                write!(f, "TArg: {}", c.borrow())
+            }
+            Marker::Thunk(_) => {
+               write!(f, "ThunkUpd: {}", "")
+            }
+            Marker::Cont(op_cont, _, _) => {
+                match op_cont {
+                    OperationCont::Op1(op, ..) => {
+                        write!(f, "OpCont1({:?})", op)
+                    }
+                    OperationCont::Op2First(op, snd, ..) => {
+                        write!(f, "OpCont2({:?}), next {}", op, snd)
+                    }
+                    OperationCont::Op2Second(op, fst, ..) => {
+                        write!(f, "OpCont2({:?}), prev {}", op, fst)
+                    }
+                    OperationCont::OpN { op, .. } => {
+                        write!(f, "OpContN({:?})", op)
+                    }
+                }
+            }
+            Marker::StrChunk(chunk) => {
+                match chunk {
+                    StrChunk::Literal(s) => write!(f, "Chunk: \"{}\"", s),
+                    StrChunk::Expr(e, _) => write!(f, "Chunk: #{{{}}}", Closure::atomic_closure(e.clone())),
+                }
+            }
+            Marker::StrAcc(s, ..) => {
+                write!(f, "StrAcc: \"{}\"", s)
+            }
+        }
+    }
+}
+
+impl fmt::Debug for Stack {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let stack_ : Vec<_> = self.0.iter().rev().take(5).collect();
+        write!(f, "{:#?}", stack_)
+    }
+}
+
 impl Marker {
     pub fn is_arg(&self) -> bool {
         matches!(*self, Marker::Arg(..) | Marker::TrackedArg(..))
@@ -75,7 +127,7 @@ impl Marker {
 }
 
 /// The evaluation stack.
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct Stack(pub Vec<Marker>);
 
 impl IntoIterator for Stack {
