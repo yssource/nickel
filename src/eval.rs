@@ -246,6 +246,7 @@ impl ThunkUpdateFrame {
     /// - `false` if the corresponding closure has been dropped since
     pub fn update(self, closure: Closure) -> bool {
         if let Some(data) = Weak::upgrade(&self.data) {
+            eprintln!("Thunk update:\n  -- Prev: {}\n  -- New: {}", data.borrow().closure, closure);
             *data.borrow_mut() = ThunkData {
                 closure,
                 state: ThunkState::Evaluated,
@@ -1169,7 +1170,9 @@ where
                         },
                         env: env.add_layer(),
                     };
+                    eprintln!("Thunk update. Env before: {:?}", env);
                     update_thunks(&mut stack, &update_closure);
+                    eprintln!("Env after: {:?}", env);
 
                     let Closure {
                         body: RichTerm { term, .. },
@@ -1217,7 +1220,9 @@ where
                     env: env.add_layer(),
                 };
                 if stack.is_top_thunk() {
+                    eprintln!("Thunk update. Env before: {:?}", env);
                     update_thunks(&mut stack, &clos);
+                    eprintln!("Env after: {:?}", env);
                     clos
                 } else {
                     continuate_operation(clos, &mut stack, &mut call_stack, &mut enriched_strict)?
