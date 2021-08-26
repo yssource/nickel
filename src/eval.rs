@@ -729,12 +729,7 @@ where
     loop {
         eprintln!("==================================");
         eprintln!("Evaluating {}", clos);
-
-        // let stack_ : Vec<_> = stack.0.iter().rev().take(5).collect();
-        if !stack.0.is_empty() {
-            eprintln!("Stack: {:?}\n", stack.0.last().unwrap());
-        }
-
+        eprintln!("Stack: {:?}\n", stack);
 
         let Closure {
             body: RichTerm {
