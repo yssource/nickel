@@ -894,10 +894,7 @@ where
     loop {
         eprintln!("==================================");
         eprintln!("Evaluating {}", clos);
-
-        let stack_ : Vec<_> = stack.0.iter().rev().take(5).collect();
-        eprintln!("Stack: {:#?}\n", stack_);
-
+        eprintln!("Stack: {:?}\n", stack);
 
         let Closure {
             body: RichTerm {
