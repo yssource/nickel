@@ -990,9 +990,9 @@ where
                         },
                         env,
                     };
-                    eprintln!("Thunk update. Env before: {:?}", env);
+                    eprintln!("Thunk update. Env before: {:?}", update_closure.env);
                     update_thunks(&mut stack, &update_closure);
-                    eprintln!("Env after: {:?}", env);
+                    eprintln!("Env after: {:?}", update_closure.env);
 
                     let Closure {
                         body: RichTerm { term, .. },
@@ -1037,9 +1037,9 @@ where
                     env,
                 };
                 if stack.is_top_thunk() {
-                    eprintln!("Thunk update. Env before: {:?}", env);
+                    eprintln!("Thunk update. Env before: {:?}", clos.env);
                     update_thunks(&mut stack, &clos);
-                    eprintln!("Env after: {:?}", env);
+                    eprintln!("Env after: {:?}", clos.env);
                     clos
                 } else {
                     continuate_operation(clos, &mut stack, &mut call_stack, &mut enriched_strict)?
