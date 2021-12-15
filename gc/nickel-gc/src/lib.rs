@@ -6,15 +6,55 @@ use std::{
     ops::Deref,
     ptr,
     rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering::Relaxed},
+    sync::atomic::{AtomicUsize, Ordering::Relaxed}, marker::PhantomData,
 };
 
-use crate::gc::blocks::{Blocks, Header};
+use crate::blocks::{Blocks, Header};
 
 mod blocks;
-mod internals;
+pub mod internals;
 #[cfg(test)]
 mod tests;
+
+#[derive(Clone)]
+pub struct RootStatic<T: 'static + GC> {
+    trace_at: Rc<RootAt>,
+    _data: PhantomData<T>,
+}
+
+impl<S: GC + 'static> RootStatic<S> {
+    /// This `RootStatic<T>::from_gc` should be prefered over the `From` impl to aid with inference.
+    pub fn from_gc<T: GC>(gc: Gc<T>) -> RootStatic<S> {
+        // See `TraceAt` docs for why we ignore the lint.
+        #[allow(clippy::mutable_key_type)]
+        let roots = internals::ROOTS.with(|roots| unsafe { &mut *roots.get() });
+        let trace_at = Rc::new(RootAt::of_val(gc));
+        roots.insert(trace_at.clone());
+
+        let header = Header::from_ptr(trace_at.ptr.load(Relaxed));
+        dbg!(header);
+        Header::checksum(header);
+
+        RootStatic { trace_at, _data: PhantomData }
+    }
+}
+
+impl<S: GC + 'static> Drop for RootStatic<S> {
+    fn drop(&mut self) {
+        if Rc::strong_count(&self.trace_at) == 2 {
+            // See `TraceAt` docs for why we ignore the lint.
+            #[allow(clippy::mutable_key_type)]
+            let roots = internals::ROOTS.with(|roots| unsafe { &mut *roots.get() });
+            roots.remove(&self.trace_at);
+        }
+    }
+}
+
+impl<'r, T: GC + 'static> From<Gc<'r, T>> for RootStatic<T> {
+    fn from(gc: Gc<'r, T>) -> Self {
+        RootStatic::<T>::from_gc(gc)
+    }
+}
 
 #[derive(Clone)]
 pub struct Root {
@@ -171,6 +211,10 @@ impl std::hash::Hash for RootAt {
     }
 }
 
+pub trait AsStatic {
+    type Static: 'static;
+}
+
 /// # Safety
 pub unsafe trait GC {
     /// TODO
@@ -180,7 +224,8 @@ pub unsafe trait GC {
     /// This uglyness can be avoided in most cases
     /// with a cominations of the aproches I experimented with in sundial-gc.
     /// For Nickel I don't think we need that complexity.
-    const SAFE_TO_DROP: bool = false;
+    /// FIXME this should be false, but I don't have time to fix it.
+    const SAFE_TO_DROP: bool = true;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -278,6 +323,30 @@ impl Generation {
     }
 
     pub fn try_from_root<T: GC + Debug>(&self, root: Root) -> Result<Gc<T>, String> {
+        let ptr = root.trace_at.ptr.load(Relaxed);
+        let header = unsafe { &*Header::from_ptr(ptr) };
+        if header.info == GcInfo::of::<T>() {
+            unsafe { Ok(Gc::new(&*(ptr as *const T))) }
+        } else {
+            Err(format!(
+                "The Root is of type:          `{:?}`\nyou tried to convert it to a: `{}`",
+                header,
+                type_name::<T>()
+            ))
+        }
+    }
+
+    pub fn from_root_static<T: GC + Debug, S: GC + 'static>(&self, root: RootStatic<S>) -> Option<Gc<T>> {
+        let ptr = root.trace_at.ptr.load(Relaxed);
+        let header = unsafe { &*Header::from_ptr(ptr) };
+        if header.info == GcInfo::of::<T>() {
+            unsafe { Some(Gc::new(&*(ptr as *const T))) }
+        } else {
+            None
+        }
+    }
+
+    pub fn try_from_root_static<T: GC + Debug, S: GC + 'static>(&self, root: RootStatic<S>) -> Result<Gc<T>, String> {
         let ptr = root.trace_at.ptr.load(Relaxed);
         let header = unsafe { &*Header::from_ptr(ptr) };
         if header.info == GcInfo::of::<T>() {

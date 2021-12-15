@@ -72,10 +72,10 @@ pub struct REPLImpl {
     parser: grammar::ExtendedTermParser,
     /// The eval environment. Contain the global environment with the stdlib, plus toplevel
     /// declarations and loadings made inside the REPL.
-    eval_env: eval::Environment,
+    eval_env: eval::Environment<'static>,
     /// The initial eval environment, without the toplevel declarations made inside the REPL. Used
     /// to typecheck imports in a fresh environment.
-    init_eval_env: eval::Environment,
+    init_eval_env: eval::Environment<'static>,
     /// The typing environment, counterpart of the eval environment for typechecking. Entries are
     /// [`TypeWrapper`](../typecheck/enum.TypeWrapper.html) for the ease of interacting with the
     /// typechecker, but there are not any unification variable in it.

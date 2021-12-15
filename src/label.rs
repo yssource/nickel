@@ -230,7 +230,7 @@ pub mod ty_path {
 /// an higher order-contract. This also generalizes to higher types such as `((Num -> Num) -> Num)
 /// -> Num` where the polarity alternates each time.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Label {
+pub struct Label<'g> {
     /// The type checked by the original contract.
     pub types: Types,
     /// A string tag to be printed together with the error message.
@@ -238,7 +238,7 @@ pub struct Label {
     /// The position of the original contract.
     pub span: RawSpan,
     /// The thunk corresponding to the value being checked. Set at run-time by the interpreter.
-    pub arg_thunk: Option<Thunk>,
+    pub arg_thunk: Option<Thunk<'g>>,
     /// The original position of the value being checked. Set at run-time by the interpreter.
     pub arg_pos: TermPos,
     /// The polarity, used for higher-order contracts, that specifies if the current contract is
@@ -248,9 +248,9 @@ pub struct Label {
     pub path: ty_path::Path,
 }
 
-impl Label {
+impl<'g> Label<'g> {
     /// Generate a dummy label for testing purpose.
-    pub fn dummy() -> Label {
+    pub fn dummy() -> Label<'g> {
         Label {
             types: Types(AbsType::Num()),
             tag: "testing".to_string(),

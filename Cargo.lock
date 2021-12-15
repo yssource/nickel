@@ -735,6 +735,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nickel-gc"
+version = "0.1.0"
+dependencies = [
+ "nickel-gc-derive",
+]
+
+[[package]]
+name = "nickel-gc-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "nix"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

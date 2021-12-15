@@ -33,7 +33,7 @@ use std::fmt;
 ///
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum Term {
+pub enum Term<'g> {
     /// The null value.
     Null,
     /// A boolean value.
@@ -58,7 +58,7 @@ pub enum Term {
     Fun(Ident, RichTerm),
     /// A blame label.
     #[serde(skip)]
-    Lbl(Label),
+    Lbl(Label<'g>),
 
     /// A let binding.
     #[serde(skip)]
@@ -178,16 +178,16 @@ impl Default for MergePriority {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Contract {
+pub struct Contract<'g> {
     pub types: Types,
-    pub label: Label,
+    pub label: Label<'g>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct MetaValue {
+pub struct MetaValue<'g> {
     pub doc: Option<String>,
-    pub types: Option<Contract>,
-    pub contracts: Vec<Contract>,
+    pub types: Option<Contract<'g>>,
+    pub contracts: Vec<Contract<'static>>,
     pub priority: MergePriority,
     pub value: Option<RichTerm>,
 }

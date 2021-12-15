@@ -51,5 +51,7 @@ assert_matches = "1.4.0"
 [workspace]
 members = [
     ".",
-    "lsp/nls"
+    "lsp/nls",
+    "gc/nickel-gc",
+    "gc/nickel-gc-derive"
 ]

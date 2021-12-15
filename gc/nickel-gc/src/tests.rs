@@ -1,6 +1,6 @@
 use std::sync::atomic::AtomicIsize;
 
-use crate::gc::internals::gc_stats;
+use crate::internals::gc_stats;
 
 use super::*;
 

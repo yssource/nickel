@@ -3,12 +3,11 @@ use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     ptr::{self, drop_in_place},
+    mem::transmute,
     sync::atomic,
 };
 
-use md5::digest::generic_array::transmute;
-
-use crate::gc::internals::{self, gc_stats};
+use crate::internals::{self, gc_stats};
 
 use super::{GcInfo, GcTypeId};
 

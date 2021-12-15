@@ -63,14 +63,14 @@ use std::collections::HashMap;
 /// Merging mode. Merging is used both to combine standard data and to apply contracts defined as
 /// records.
 #[derive(Clone, PartialEq, Debug)]
-pub enum MergeMode {
+pub enum MergeMode<'g> {
     /// Standard merging, for combining data.
     Standard,
     /// Merging to apply a record contract to a value, with the associated label.
-    Contract(Label),
+    Contract(Label<'g>),
 }
 
-impl Default for MergeMode {
+impl<'g> Default for MergeMode<'g> {
     fn default() -> Self {
         MergeMode::Standard
     }
@@ -83,14 +83,14 @@ impl Default for MergeMode {
 ///
 /// In `Contract` mode (see [`MergingMode`]()), `t1` must be the value and `t2` must be the
 /// contract. It is important as `merge` is not commutative in this mode.
-pub fn merge(
+pub fn merge<'g>(
     t1: RichTerm,
     env1: Environment,
     t2: RichTerm,
     env2: Environment,
     pos_op: TermPos,
     mode: MergeMode,
-) -> Result<Closure, EvalError> {
+) -> Result<Closure<'g>, EvalError> {
     // Merging a simple value and a metavalue is equivalent to first wrapping the simple value in a
     // new metavalue (with no attribute set excepted the value), and then merging the two
     let (t1, t2) = match (t1.term.is_metavalue(), t2.term.is_metavalue()) {
@@ -388,12 +388,12 @@ pub fn merge(
 ///
 /// - the term is given by `t1` in its environment `env1`
 /// - the contracts are given as an iterator `it2` together with their environment `env2`
-fn cross_apply_contracts<'a>(
+fn cross_apply_contracts<'a, 'g>(
     t1: RichTerm,
     env1: &Environment,
     it2: impl Iterator<Item = &'a Contract>,
     env2: &Environment,
-) -> (RichTerm, Environment) {
+) -> (RichTerm, Environment<'g>) {
     let mut env = Environment::new();
     let mut env1_local = env1.clone();
 
