@@ -41,6 +41,21 @@ impl<S: GC + 'static> RootStatic<S> {
             _data: PhantomData,
         }
     }
+
+    /// This is safe since this GC is single threaded.
+    /// TODO I need to double check my assumtions here.
+    pub fn get(&self) -> &S {
+        let b: &RootAt = self.trace_at.borrow();
+        unsafe { &*(b.ptr.load(Relaxed) as *const S) }
+    }
+}
+
+impl<S: GC + 'static> Deref for RootStatic<S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        self.get()
+    }
 }
 
 impl<S: GC + 'static> Drop for RootStatic<S> {
