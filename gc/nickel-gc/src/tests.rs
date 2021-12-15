@@ -4,7 +4,14 @@ use crate::internals::gc_stats;
 
 use super::*;
 
-#[derive(Debug)]
+mod nickel_gc {
+    #[allow(unused_imports)]
+    pub use super::*;
+}
+
+use nickel_gc_derive::*;
+
+#[derive(Debug, GC)]
 struct List<'g, T> {
     elm: T,
     next: Option<Gc<'g, List<'g, T>>>,
@@ -39,13 +46,6 @@ impl<'g, T: GC + Debug> List<'g, T> {
     }
 }
 
-unsafe impl<'g, T: GC> GC for List<'g, T> {
-    fn trace(&self, direct_gc_ptrs: &mut Vec<TraceAt>) {
-        self.elm.trace(direct_gc_ptrs);
-        self.next.trace(direct_gc_ptrs);
-    }
-    const SAFE_TO_DROP: bool = true;
-}
 
 #[test]
 fn lifetimes() {
@@ -60,12 +60,8 @@ fn lifetimes() {
 #[test]
 fn alloc() {
     static COUNTED_COUNT: AtomicIsize = AtomicIsize::new(0);
-    #[derive(Debug)]
+    #[derive(Debug, GC)]
     struct Counted(&'static AtomicIsize);
-    unsafe impl GC for Counted {
-        fn trace(&self, _: &mut Vec<TraceAt>) {}
-        const SAFE_TO_DROP: bool = true;
-    }
     impl Drop for Counted {
         fn drop(&mut self) {
             self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);

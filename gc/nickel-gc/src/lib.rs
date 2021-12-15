@@ -3,16 +3,17 @@ use std::{
     borrow::Borrow,
     cell::UnsafeCell,
     fmt::Debug,
+    marker::PhantomData,
     ops::Deref,
     ptr,
     rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering::Relaxed}, marker::PhantomData,
+    sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
 use crate::blocks::{Blocks, Header};
 
 mod blocks;
-pub mod internals;
+mod internals;
 #[cfg(test)]
 mod tests;
 
@@ -35,7 +36,10 @@ impl<S: GC + 'static> RootStatic<S> {
         dbg!(header);
         Header::checksum(header);
 
-        RootStatic { trace_at, _data: PhantomData }
+        RootStatic {
+            trace_at,
+            _data: PhantomData,
+        }
     }
 }
 
@@ -111,10 +115,10 @@ impl<'g, T: Debug> Gc<'g, T> {
 }
 
 unsafe impl<'g, T: GC> GC for Gc<'g, T> {
-    fn trace(&self, direct_gc_ptrs: &mut Vec<TraceAt>) {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         // TODO this seems like it could cause issues, since `GC: Copy`.
         // Fix it by replacing `&self` with `*const Self`
-        direct_gc_ptrs.push(TraceAt::of_val(self))
+        unsafe { &mut *(direct_gc_ptrs as *mut Vec<TraceAt>) }.push(TraceAt::of_val(s))
     }
 
     const SAFE_TO_DROP: bool = true;
@@ -219,7 +223,7 @@ pub trait AsStatic {
 pub unsafe trait GC {
     /// TODO
     /// In the future this can be made const for non DSTs.
-    fn trace(&self, _direct_gc_ptrs: &mut Vec<TraceAt>) {}
+    fn trace(_s: &Self, _direct_gc_ptrs: *mut Vec<()>) {}
     /// If this is false we leak.
     /// This uglyness can be avoided in most cases
     /// with a cominations of the aproches I experimented with in sundial-gc.
@@ -253,29 +257,53 @@ impl GcInfo {
 }
 
 unsafe impl<'g, A: 'g + GC, B: 'g + GC, C: 'g + GC> GC for (A, B, C) {
-    fn trace(&self, direct_gc_ptrs: &mut Vec<TraceAt>) {
-        A::trace(&self.0, direct_gc_ptrs);
-        B::trace(&self.1, direct_gc_ptrs);
-        C::trace(&self.2, direct_gc_ptrs);
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        A::trace(&s.0, direct_gc_ptrs);
+        B::trace(&s.1, direct_gc_ptrs);
+        C::trace(&s.2, direct_gc_ptrs);
     }
-
-    // usize does not need drop
-    const SAFE_TO_DROP: bool = false;
 }
 
-unsafe impl GC for usize {
-    // usize does not need drop
-    const SAFE_TO_DROP: bool = false;
+unsafe impl<'g, A: 'g + GC, B: 'g + GC> GC for (A, B) {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        A::trace(&s.0, direct_gc_ptrs);
+        B::trace(&s.1, direct_gc_ptrs);
+    }
 }
+
+unsafe impl<'g, A: 'g + GC> GC for (A,) {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        A::trace(&s.0, direct_gc_ptrs);
+    }
+}
+
+unsafe impl<T: GC> GC for &'static T {}
+
+unsafe impl GC for usize {}
+unsafe impl GC for u128 {}
+unsafe impl GC for u64 {}
+unsafe impl GC for u32 {}
+unsafe impl GC for u16 {}
+unsafe impl GC for u8 {}
+
+unsafe impl GC for isize {}
+unsafe impl GC for i128 {}
+unsafe impl GC for i64 {}
+unsafe impl GC for i32 {}
+unsafe impl GC for i16 {}
+unsafe impl GC for i8 {}
+
+unsafe impl GC for AtomicUsize {}
+unsafe impl GC for std::sync::atomic::AtomicIsize {}
 
 unsafe impl GC for String {
     const SAFE_TO_DROP: bool = true;
 }
 
 unsafe impl<T: GC> GC for Option<T> {
-    fn trace(&self, direct_gc_ptrs: &mut Vec<TraceAt>) {
-        if let Some(t) = self.as_ref() {
-            t.trace(direct_gc_ptrs)
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        if let Some(t) = s.as_ref() {
+            T::trace(t, direct_gc_ptrs)
         }
     }
 
@@ -336,7 +364,10 @@ impl Generation {
         }
     }
 
-    pub fn from_root_static<T: GC + Debug, S: GC + 'static>(&self, root: RootStatic<S>) -> Option<Gc<T>> {
+    pub fn from_root_static<T: GC + Debug, S: GC + 'static>(
+        &self,
+        root: RootStatic<S>,
+    ) -> Option<Gc<T>> {
         let ptr = root.trace_at.ptr.load(Relaxed);
         let header = unsafe { &*Header::from_ptr(ptr) };
         if header.info == GcInfo::of::<T>() {
@@ -346,7 +377,10 @@ impl Generation {
         }
     }
 
-    pub fn try_from_root_static<T: GC + Debug, S: GC + 'static>(&self, root: RootStatic<S>) -> Result<Gc<T>, String> {
+    pub fn try_from_root_static<T: GC + Debug, S: GC + 'static>(
+        &self,
+        root: RootStatic<S>,
+    ) -> Result<Gc<T>, String> {
         let ptr = root.trace_at.ptr.load(Relaxed);
         let header = unsafe { &*Header::from_ptr(ptr) };
         if header.info == GcInfo::of::<T>() {

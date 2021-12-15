@@ -1,11 +1,11 @@
 /// This was a copy from sundial-gc-derive.
 /// It still needs to be customised
 ///
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
     parse_macro_input, parse_quote, punctuated::Punctuated, token::Comma, DataEnum, DataStruct,
-    DeriveInput, Field, Fields, FieldsNamed, FieldsUnnamed, Ident, Type, Variant,
+    DeriveInput, Field, Fields, FieldsNamed, FieldsUnnamed, Type, Variant,
 };
 
 #[proc_macro_derive(GC)]
@@ -35,7 +35,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
     generics.type_params().for_each(|t| {
         where_clause
             .predicates
-            .push(parse_quote! { #t: nickel_gc::AsStatic });
+            .push(parse_quote! { #t: nickel_gc::GC });
 
         where_clause_l
             .predicates
@@ -47,7 +47,6 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
             .iter()
             .enumerate()
             .map(|(i, Field { ty, .. })| {
-                let i = Ident::new(&format!("f{}", i), Span::call_site());
                 let arg = quote! {#i};
                 types.push(ty.clone());
                 arg
@@ -55,7 +54,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
             .collect();
 
         let e = quote! {
-            #(GC::evacuate(#args, direct_gc_ptrs); )*
+            #(GC::trace(&s.#args, direct_gc_ptrs); )*
         };
 
         e
@@ -73,7 +72,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
             .collect();
 
         let e = quote! {
-            #(GC::evacuate(#args, direct_gc_ptrs); )*
+            #(GC::trace(&s.#args, direct_gc_ptrs); )*
         };
 
         e
@@ -83,8 +82,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
         unnamed
             .iter()
             .enumerate()
-            .map(|(i, _)| Ident::new(&format!("f{}", i), Span::call_site()))
-            .map(|i| quote! {#i})
+            .map(|(i, _)| quote! {#i})
             .collect()
     };
 
@@ -97,7 +95,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
 
     let mut types: Vec<Type> = vec![];
 
-    let evacuate = match data {
+    let trace = match data {
         syn::Data::Struct(DataStruct { fields, .. }) => match fields {
             syn::Fields::Named(FieldsNamed { named, .. }) => {
                 let names = struc_names(&named);
@@ -170,15 +168,21 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
         .map(|t| quote! { #t::Static })
         .collect();
 
+    let stat = if generics.lifetimes().count() == 0 {
+        quote! {#top_name<#(#type_params,)*>}
+    } else {
+        quote! { #top_name<'static, #(#type_params,)*> }
+    };
+
     quote! {
         unsafe impl #impl_generics nickel_gc::GC for #top_name #ty_generics #where_clause {
-            fn trace(s: &self, direct_gc_ptrs: &mut Vec<nickel_gc::internals::TraceAt>) {
-                #evacuate
+            fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+                #trace
             }
         }
 
-       unsafe impl #impl_generics_l nickel_gc::AsStatic for #top_name #ty_generics #where_clause_l {
-            type Static = #top_name<'static, #(#type_params,)*>;
+       impl #impl_generics_l nickel_gc::AsStatic for #top_name #ty_generics #where_clause_l {
+            type Static = #stat;
        }
     }
 }
@@ -197,9 +201,32 @@ fn binary_tree_derive_test() {
 }
 
 #[test]
+fn list_derive_test() {
+    let input: DeriveInput = parse_quote! {
+        struct List<'g, T> {
+            elm: T,
+            next: Option<Gc<'g, List<'g, T>>>,
+        }
+    };
+
+    let ts = trace_impl(input);
+    eprintln!("{}", ts);
+}
+
+#[test]
+fn counted_derive_test() {
+    let input: DeriveInput = parse_quote! {
+        struct Counted(&'static AtomicIsize);
+    };
+
+    let ts = trace_impl(input);
+    eprintln!("{}", ts);
+}
+
+#[test]
 fn add_to_where() {
     let mut w: syn::WhereClause = parse_quote! { where };
-    let t: Ident = parse_quote! { T };
+    let t: proc_macro2::Ident = parse_quote! { T };
     w.predicates.push(parse_quote! { #t: nickel_gc::GC });
     w.predicates.push(parse_quote! { #t: nickel_gc::GC });
 }
