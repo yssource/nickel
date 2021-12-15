@@ -89,7 +89,6 @@
 use crate::cache::ImportResolver;
 use crate::environment::Environment as GenericEnvironment;
 use crate::error::EvalError;
-use crate::gc::Generation;
 use crate::identifier::Ident;
 use crate::mk_app;
 use crate::operation::{continuate_operation, OperationCont};
@@ -117,8 +116,8 @@ pub enum ThunkState {
 
 /// The mutable data stored inside a thunk.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ThunkData<'g> {
-    inner: InnerThunkData<'g>,
+pub struct ThunkData {
+    inner: InnerThunkData,
     state: ThunkState,
 }
 
@@ -128,15 +127,15 @@ pub struct ThunkData<'g> {
 /// recursive merging of records and overriding (see the [RFC
 /// overriding](https://github.com/tweag/nickel/pull/330))
 #[derive(Clone, Debug, PartialEq)]
-pub enum InnerThunkData<'g> {
-    Standard(Closure<'g>),
+pub enum InnerThunkData {
+    Standard(Closure),
     Reversible {
-        orig: Rc<Closure<'g>>,
-        cached: Rc<Closure<'g>>,
+        orig: Rc<Closure>,
+        cached: Rc<Closure>,
     },
 }
 
-impl<'g> ThunkData<'g> {
+impl ThunkData {
     /// Create new standard thunk data.
     pub fn new(closure: Closure) -> Self {
         ThunkData {
@@ -159,7 +158,7 @@ impl<'g> ThunkData<'g> {
     }
 
     /// Return a reference to the closure currently cached.
-    pub fn closure(&self) -> &Closure<'g> {
+    pub fn closure(&self) -> &Closure {
         match self.inner {
             InnerThunkData::Standard(ref closure) => closure,
             InnerThunkData::Reversible { ref cached, .. } => cached,
@@ -167,7 +166,7 @@ impl<'g> ThunkData<'g> {
     }
 
     /// Return a mutable reference to the closure currently cached.
-    pub fn closure_mut(&mut self) -> &mut Closure<'g> {
+    pub fn closure_mut(&mut self) -> &mut Closure {
         match self.inner {
             InnerThunkData::Standard(ref mut closure) => closure,
             InnerThunkData::Reversible { ref mut cached, .. } => Rc::make_mut(cached),
@@ -175,7 +174,7 @@ impl<'g> ThunkData<'g> {
     }
 
     /// Consume the data and return the cached closure.
-    pub fn into_closure(self) -> Closure<'g> {
+    pub fn into_closure(self) -> Closure {
         match self.inner {
             InnerThunkData::Standard(closure) => closure,
             InnerThunkData::Reversible { orig, cached } => {
@@ -227,8 +226,8 @@ impl<'g> ThunkData<'g> {
 /// inside a record may be invalidated by merging, and thus need to store the unaltered original
 /// expression. Those aspects are mainly handled in [InnerThunkData].
 #[derive(Clone, Debug, PartialEq)]
-pub struct Thunk<'g> {
-    data: Rc<RefCell<ThunkData<'g>>>,
+pub struct Thunk {
+    data: Rc<RefCell<ThunkData>>,
     ident_kind: IdentKind,
 }
 
@@ -236,9 +235,9 @@ pub struct Thunk<'g> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BlackholedError;
 
-impl<'g> Thunk<'g> {
+impl Thunk {
     /// Create a new standard thunk.
-    pub fn new(closure: Closure<'g>, ident_kind: IdentKind) -> Self {
+    pub fn new(closure: Closure, ident_kind: IdentKind) -> Self {
         Thunk {
             data: Rc::new(RefCell::new(ThunkData::new(closure))),
             ident_kind,
@@ -246,7 +245,7 @@ impl<'g> Thunk<'g> {
     }
 
     /// Create a new reversible thunk.
-    pub fn new_rev(closure: Closure<'g>, ident_kind: IdentKind) -> Self {
+    pub fn new_rev(closure: Closure, ident_kind: IdentKind) -> Self {
         Thunk {
             data: Rc::new(RefCell::new(ThunkData::new_rev(closure))),
             ident_kind,
@@ -278,17 +277,17 @@ impl<'g> Thunk<'g> {
     }
 
     /// Immutably borrow the inner closure. Panic if there is another active mutable borrow.
-    pub fn borrow(&self) -> Ref<'_, Closure<'g>> {
+    pub fn borrow(&self) -> Ref<'_, Closure> {
         Ref::map(self.data.borrow(), |data| data.closure())
     }
 
     /// Mutably borrow the inner closure. Panic if there is any other active borrow.
-    pub fn borrow_mut(&mut self) -> RefMut<'_, Closure<'g>> {
+    pub fn borrow_mut(&mut self) -> RefMut<'_, Closure> {
         RefMut::map(self.data.borrow_mut(), |data| data.closure_mut())
     }
 
     /// Get an owned clone of the inner closure.
-    pub fn get_owned(&self) -> Closure<'g> {
+    pub fn get_owned(&self) -> Closure {
         self.data.borrow().closure().clone()
     }
 
@@ -298,7 +297,7 @@ impl<'g> Thunk<'g> {
 
     /// Consume the thunk and return an owned closure. Avoid cloning if this thunk is the only
     /// reference to the inner closure.
-    pub fn into_closure(self) -> Closure<'g> {
+    pub fn into_closure(self) -> Closure {
         match Rc::try_unwrap(self.data) {
             Ok(inner) => inner.into_inner().into_closure(),
             Err(rc) => rc.borrow().closure().clone(),
@@ -323,19 +322,19 @@ impl<'g> Thunk<'g> {
 /// holds a weak reference to the inner closure, to avoid unnecessarily keeping the underlying
 /// closure alive.
 #[derive(Clone, Debug)]
-pub struct ThunkUpdateFrame<'g> {
-    data: Weak<RefCell<ThunkData<'g>>>,
+pub struct ThunkUpdateFrame {
+    data: Weak<RefCell<ThunkData>>,
     ident_kind: IdentKind,
 }
 
-impl<'g> ThunkUpdateFrame<'g> {
+impl ThunkUpdateFrame {
     /// Update the corresponding thunk with a closure. Set the state to `Evaluated`
     ///
     /// # Return
     ///
     /// - `true` if the thunk was successfully updated
     /// - `false` if the corresponding closure has been dropped since
-    pub fn update(self, closure: Closure<'g>) -> bool {
+    pub fn update(self, closure: Closure) -> bool {
         if let Some(data) = Weak::upgrade(&self.data) {
             data.borrow_mut().update(closure);
             true
@@ -372,13 +371,13 @@ pub enum IdentKind {
 
 /// A closure, a term together with an environment.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Closure<'g> {
+pub struct Closure {
     pub body: RichTerm,
-    pub env: Environment<'g>,
+    pub env: Environment,
 }
 
-impl<'g> Closure<'g> {
-    pub fn atomic_closure(body: RichTerm) -> Closure<'g> {
+impl Closure {
+    pub fn atomic_closure(body: RichTerm) -> Closure {
         Closure {
             body,
             env: Environment::new(),
@@ -386,7 +385,7 @@ impl<'g> Closure<'g> {
     }
 }
 
-pub type Environment<'g> = GenericEnvironment<'g, Ident, Thunk<'g>>;
+pub type Environment = GenericEnvironment<Ident, Thunk>;
 
 /// Raised when trying to build an environment from a term which is not a record.
 #[derive(Clone, Debug)]
@@ -518,13 +517,12 @@ where
 /// Either:
 ///  - an evaluation error
 ///  - the evaluated term with its final environment
-pub fn eval_closure<'g, R>(
-    gen: &'g Generation,
-    mut clos: Closure<'g>,
+pub fn eval_closure<R>(
+    mut clos: Closure,
     global_env: &Environment,
     resolver: &mut R,
     mut enriched_strict: bool,
-) -> Result<(Term, Environment<'g>), EvalError>
+) -> Result<(Term, Environment), EvalError>
 where
     R: ImportResolver,
 {

@@ -36,14 +36,14 @@ generate_counter!(FreshVariableCounter, usize);
 /// last vector parameter is the (potentially empty) tail.
 ///
 /// See [`eq`](./fn.eq.html).
-enum EqResult<'g> {
+enum EqResult {
     Bool(bool),
-    Eqs(RichTerm, RichTerm, Vec<(Closure<'g>, Closure<'g>)>),
+    Eqs(RichTerm, RichTerm, Vec<(Closure, Closure)>),
 }
 
 /// An operation continuation as stored on the stack.
 #[derive(PartialEq)]
-pub enum OperationCont<'g> {
+pub enum OperationCont {
     Op1(
         /* unary operation */ UnaryOp,
         /* original position of the argument before evaluation */ TermPos,
@@ -51,25 +51,25 @@ pub enum OperationCont<'g> {
     // The last parameter saves the strictness mode before the evaluation of the operator
     Op2First(
         /* the binary operation */ BinaryOp,
-        /* second argument, to evaluate next */ Closure<'g>,
+        /* second argument, to evaluate next */ Closure,
         /* original position of the first argument */ TermPos,
     ),
     Op2Second(
         /* binary operation */ BinaryOp,
-        /* first argument, evaluated */ Closure<'g>,
+        /* first argument, evaluated */ Closure,
         /* original position of the first argument before evaluation */ TermPos,
         /* original position of the second argument before evaluation */ TermPos,
     ),
     OpN {
         op: NAryOp,                         /* the n-ary operation */
-        evaluated: Vec<(Closure<'g>, TermPos)>, /* evaluated arguments and their original position */
+        evaluated: Vec<(Closure, TermPos)>, /* evaluated arguments and their original position */
         current_pos: TermPos, /* original position of the argument being currently evaluated */
-        pending: Vec<Closure<'g>>, /* a stack (meaning the order of arguments is to be reversed)
+        pending: Vec<Closure>, /* a stack (meaning the order of arguments is to be reversed)
                               of arguments yet to be evaluated */
     },
 }
 
-impl<'g> std::fmt::Debug for OperationCont<'g> {
+impl std::fmt::Debug for OperationCont {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OperationCont::Op1(op, _) => write!(f, "Op1 {:?}", op),
@@ -85,11 +85,11 @@ impl<'g> std::fmt::Debug for OperationCont<'g> {
 /// Depending on the content of the stack, it either starts the evaluation of the first argument,
 /// starts the evaluation of the second argument, or finally process with the operation if both
 /// arguments are evaluated (for binary operators).
-pub fn continuate_operation<'g>(
-    mut clos: Closure<'g>,
-    stack: &mut Stack<'g>,
+pub fn continuate_operation(
+    mut clos: Closure,
+    stack: &mut Stack,
     call_stack: &mut CallStack,
-) -> Result<Closure<'g>, EvalError> {
+) -> Result<Closure, EvalError> {
     let (cont, cs_len, pos) = stack.pop_op_cont().expect("Condition already checked");
     call_stack.truncate(cs_len);
     match cont {
@@ -141,14 +141,14 @@ pub fn continuate_operation<'g>(
 ///
 /// The argument is expected to be evaluated (in WHNF). `pos_op` corresponds to the whole
 /// operation position, that may be needed for error reporting.
-fn process_unary_operation<'g>(
+fn process_unary_operation(
     u_op: UnaryOp,
-    clos: Closure<'g>,
+    clos: Closure,
     arg_pos: TermPos,
-    stack: &mut Stack<'g>,
+    stack: &mut Stack,
     call_stack: &mut CallStack,
     pos_op: TermPos,
-) -> Result<Closure<'g>, EvalError> {
+) -> Result<Closure, EvalError> {
     let Closure {
         body: RichTerm { term: t, pos },
         mut env,
@@ -938,7 +938,7 @@ fn process_unary_operation<'g>(
 ///
 /// Both arguments are expected to be evaluated (in WHNF). `pos_op` corresponds to the whole
 /// operation position, that may be needed for error reporting.
-fn process_binary_operation<'g>(
+fn process_binary_operation(
     b_op: BinaryOp,
     fst_clos: Closure,
     fst_pos: TermPos,
@@ -946,7 +946,7 @@ fn process_binary_operation<'g>(
     snd_pos: TermPos,
     stack: &mut Stack,
     pos_op: TermPos,
-) -> Result<Closure<'g>, EvalError> {
+) -> Result<Closure, EvalError> {
     let Closure {
         body: RichTerm {
             term: t1,
@@ -2037,12 +2037,12 @@ fn process_binary_operation<'g>(
 ///
 /// Arguments are expected to be evaluated (in WHNF). `pos_op` corresponds to the whole
 /// operation position, that may be needed for error reporting.
-fn process_nary_operation<'g>(
+fn process_nary_operation(
     n_op: NAryOp,
     args: Vec<(Closure, TermPos)>,
     _stack: &mut Stack,
     pos_op: TermPos,
-) -> Result<Closure<'g>, EvalError> {
+) -> Result<Closure, EvalError> {
     let pos_op_inh = pos_op.into_inherited();
 
     // Currently, for fixed arity primitive operators, the parser must ensure that they get exactly
@@ -2209,7 +2209,7 @@ fn process_nary_operation<'g>(
 ///
 /// Return either a boolean when the equality can be computed directly, or a new non-empty list of equalities to be checked if
 /// operands are composite values.
-fn eq<'g>(env: &mut Environment<'g>, c1: Closure<'g>, c2: Closure<'g>) -> EqResult<'g> {
+fn eq(env: &mut Environment, c1: Closure, c2: Closure) -> EqResult {
     let Closure {
         body: RichTerm { term: t1, .. },
         env: env1,
@@ -2221,12 +2221,12 @@ fn eq<'g>(env: &mut Environment<'g>, c1: Closure<'g>, c2: Closure<'g>) -> EqResu
 
     // Take a list of subequalities, and either return `EqResult::Bool(true)` if it is empty, or
     // generate an approriate `EqResult::Eqs` variant with closurized terms in it.
-    fn gen_eqs<'g, I>(
+    fn gen_eqs<I>(
         mut it: I,
-        env: &mut Environment<'g>,
-        env1: Environment<'g>,
-        env2: Environment<'g>,
-    ) -> EqResult<'g>
+        env: &mut Environment,
+        env1: Environment,
+        env2: Environment,
+    ) -> EqResult
     where
         I: Iterator<Item = (RichTerm, RichTerm)>,
     {

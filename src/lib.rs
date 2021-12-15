@@ -2,7 +2,6 @@ pub mod cache;
 pub mod environment;
 pub mod error;
 pub mod eval;
-pub mod gc;
 pub mod identifier;
 pub mod label;
 pub mod merge;

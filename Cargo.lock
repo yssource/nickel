@@ -716,6 +716,8 @@ dependencies = [
  "lalrpop-util",
  "logos",
  "md-5",
+ "nickel-gc",
+ "nickel-gc-derive",
  "pretty_assertions",
  "regex 0.2.11",
  "rustyline",

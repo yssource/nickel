@@ -44,6 +44,9 @@ wasm-bindgen = { version = "=0.2.74", optional = true, features = ["serde-serial
 js-sys = { version = "0.3", optional = true }
 serde_repr = { version = "0.1", optional = true }
 
+nickel-gc = { path = "gc/nickel-gc" }
+nickel-gc-derive = { path = "gc/nickel-gc-derive" }
+
 [dev-dependencies]
 pretty_assertions = "0.5.1"
 assert_matches = "1.4.0"

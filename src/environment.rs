@@ -7,8 +7,6 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
-use crate::gc::Gc;
-
 /// An environment as a linked-list of hashmaps.
 ///
 /// Each node of the linked-list corresponds to what is called
@@ -28,12 +26,12 @@ use crate::gc::Gc;
 /// so it can safely be reset as a new hashmap.
 /// The previous layers are set in order from the most recent one to the oldest.
 #[derive(Debug, PartialEq, Default)]
-pub struct Environment<'g, K: Hash + Eq, V: PartialEq> {
+pub struct Environment<K: Hash + Eq, V: PartialEq> {
     current: Rc<HashMap<K, V>>,
-    previous: RefCell<Option<Gc<'g, Rc<Environment<'g, K, V>>>>>,
+    previous: RefCell<Option<Rc<Environment<K, V>>>>,
 }
 
-impl<'g, K: Hash + Eq, V: PartialEq> Clone for Environment<'g, K, V> {
+impl<K: Hash + Eq, V: PartialEq> Clone for Environment<K, V> {
     /// Clone has to create a new environment, while ensuring that previous
     /// defined layers are accessible but not modifiable anymore.
     /// For that, it checks if the current Environment has already be cloned,
@@ -55,7 +53,7 @@ impl<'g, K: Hash + Eq, V: PartialEq> Clone for Environment<'g, K, V> {
     }
 }
 
-impl<'g, K: Hash + Eq, V: PartialEq> Environment<'g, K, V> {
+impl<K: Hash + Eq, V: PartialEq> Environment<K, V> {
     /// Creates a new empty Environment.
     pub fn new() -> Self {
         Self {
@@ -133,7 +131,7 @@ impl<'g, K: Hash + Eq, V: PartialEq> Environment<'g, K, V> {
     }
 }
 
-impl<'g, K: Hash + Eq, V: PartialEq> FromIterator<(K, V)> for Environment<'g, K, V> {
+impl<K: Hash + Eq, V: PartialEq> FromIterator<(K, V)> for Environment<K, V> {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         Self {
             current: Rc::new(HashMap::from_iter(iter)),
@@ -142,7 +140,7 @@ impl<'g, K: Hash + Eq, V: PartialEq> FromIterator<(K, V)> for Environment<'g, K,
     }
 }
 
-impl<'g, K: Hash + Eq, V: PartialEq> Extend<(K, V)> for Environment<'g, K, V> {
+impl<K: Hash + Eq, V: PartialEq> Extend<(K, V)> for Environment<K, V> {
     fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
         // if can mut. borrow current, then we just extend, otherwise it means
         // it was cloned, and we recreate a new map from iter for current
@@ -160,8 +158,8 @@ impl<'g, K: Hash + Eq, V: PartialEq> Extend<(K, V)> for Environment<'g, K, V> {
 /// [`iter_layers`]: Environment::iter_layers
 ///
 pub struct EnvLayerIter<'a, K: 'a + Hash + Eq, V: 'a + PartialEq> {
-    env: Option<NonNull<Environment<'a, K, V>>>,
-    _marker: PhantomData<&'a Environment<'a, K, V>>,
+    env: Option<NonNull<Environment<K, V>>>,
+    _marker: PhantomData<&'a Environment<K, V>>,
 }
 
 impl<'a, K: 'a + Hash + Eq, V: 'a + PartialEq> Iterator for EnvLayerIter<'a, K, V> {
@@ -228,7 +226,7 @@ impl<'a, K: 'a + Hash + Eq, V: 'a + PartialEq> Iterator for EnvIter<'a, K, V> {
 mod tests {
     use super::*;
 
-    impl<'g, K: Hash + Eq, V: PartialEq> Environment<'g, K, V> {
+    impl<K: Hash + Eq, V: PartialEq> Environment<K, V> {
         pub fn depth(&self) -> usize {
             1 + self.previous.borrow().as_ref().map_or(0, |p| p.depth())
         }

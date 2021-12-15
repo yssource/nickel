@@ -212,7 +212,7 @@ impl<L, S> StubHost<L, S> {
     }
 }
 
-pub type Environment<'g> = GenericEnvironment<'g, Ident, usize>;
+pub type Environment = GenericEnvironment<Ident, usize>;
 
 trait ScopeIdElem: Clone + Eq {}
 

@@ -7,7 +7,7 @@ use crate::position::TermPos;
 use crate::term::{RichTerm, StrChunk};
 
 /// An element of the stack.
-pub enum Marker<'g> {
+pub enum Marker {
     /// An equality to test.
     ///
     /// When evaluating one equality `t1 == t2`, the abstract machine may generate several new
@@ -15,19 +15,19 @@ pub enum Marker<'g> {
     /// first equality is evaluated and the remaining ones - the continuation of the whole
     /// computation - are put on the stack as `Eq` elements. If an equality evaluates to `false` at
     /// some point, all the consecutive `Eq` elements at the top of the stack are discarded.
-    Eq(Closure<'g>, Closure<'g>),
+    Eq(Closure, Closure),
     /// An argument of an application.
-    Arg(Closure<'g>, TermPos),
+    Arg(Closure, TermPos),
     /// A tracked argument. Behave the same as a standard argument, but is given directly as a thunk, such that
     /// it can be shared with other part of the program.
     ///
     /// In particular, contract arguments are tracked, in order to report the actual, evaluated offending term in case of blame.
-    TrackedArg(Thunk<'g>, TermPos),
+    TrackedArg(Thunk, TermPos),
     /// A thunk, which is pointer to a mutable memory cell to be updated.
-    Thunk(ThunkUpdateFrame<'g>),
+    Thunk(ThunkUpdateFrame),
     /// The continuation of a primitive operation.
     Cont(
-        OperationCont<'g>,
+        OperationCont,
         usize,   /*callStack size*/
         TermPos, /*position span of the operation*/
     ),
@@ -43,12 +43,12 @@ pub enum Marker<'g> {
     StrAcc(
         String,      /* the accumulator */
         usize,       /* the indentation level of the chunk currently evaluated */
-        Environment<'g>, /* the common environment of chunks */
+        Environment, /* the common environment of chunks */
     ),
     Strictness(bool),
 }
 
-impl<'g> std::fmt::Debug for Marker<'g> {
+impl std::fmt::Debug for Marker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Marker::Eq(_, _) => write!(f, "Eq"),
@@ -63,7 +63,7 @@ impl<'g> std::fmt::Debug for Marker<'g> {
     }
 }
 
-impl<'g> Marker<'g> {
+impl Marker {
     pub fn is_arg(&self) -> bool {
         matches!(*self, Marker::Arg(..) | Marker::TrackedArg(..))
     }
@@ -94,19 +94,19 @@ impl<'g> Marker<'g> {
 }
 
 /// The evaluation stack.
-pub struct Stack<'g>(Vec<Marker<'g>>);
+pub struct Stack(Vec<Marker>);
 
-impl<'g> IntoIterator for Stack<'g> {
-    type Item = Marker<'g>;
-    type IntoIter = ::std::vec::IntoIter<Marker<'g>>;
+impl IntoIterator for Stack {
+    type Item = Marker;
+    type IntoIter = ::std::vec::IntoIter<Marker>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-impl<'g> Stack<'g> {
-    pub fn new() -> Stack<'g> {
+impl Stack {
+    pub fn new() -> Stack {
         Stack(Vec::new())
     }
 
@@ -150,7 +150,7 @@ impl<'g> Stack<'g> {
     /// Push a sequence of equalities on the stack.
     pub fn push_eqs<I>(&mut self, it: I)
     where
-        I: Iterator<Item = (Closure<'g>, Closure<'g>)>,
+        I: Iterator<Item = (Closure, Closure)>,
     {
         self.0.extend(it.map(|(t1, t2)| Marker::Eq(t1, t2)));
     }
@@ -312,7 +312,7 @@ impl<'g> Stack<'g> {
     }
 }
 
-impl<'g> std::fmt::Debug for Stack<'g> {
+impl std::fmt::Debug for Stack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "--- STACK ---")?;
         for marker in self.0.iter().rev() {
@@ -326,11 +326,10 @@ impl<'g> std::fmt::Debug for Stack<'g> {
 mod tests {
     use super::*;
     use crate::eval::{IdentKind, Thunk};
-    use crate::gc::Generation;
     use crate::term::{Term, UnaryOp};
     use assert_matches::assert_matches;
 
-    impl<'g> Stack<'g> {
+    impl Stack {
         /// Count the number of thunks at the top of the stack.
         pub fn count_thunks(&self) -> usize {
             Stack::count(self, Marker::is_thunk)
@@ -342,45 +341,43 @@ mod tests {
         }
     }
 
-    fn some_closure<'g>(gen: &'g Generation) -> Closure<'g> {
-        Closure::atomic_closure(gen, Term::Bool(true).into())
+    fn some_closure() -> Closure {
+        Closure::atomic_closure(Term::Bool(true).into())
     }
 
-    fn some_cont<'g>(gen: &'g Generation) -> OperationCont<'g> {
+    fn some_cont() -> OperationCont {
         OperationCont::Op1(UnaryOp::IsNum(), TermPos::None)
     }
 
-    fn some_arg_marker<'g>(gen: &'g Generation) -> Marker<'g> {
-        Marker::Arg(some_closure(gen), TermPos::None)
+    fn some_arg_marker() -> Marker {
+        Marker::Arg(some_closure(), TermPos::None)
     }
 
-    fn some_thunk_marker<'g>(gen: &'g Generation) -> Marker<'g> {
-        let mut thunk = Thunk::new(some_closure(gen), IdentKind::Let());
+    fn some_thunk_marker() -> Marker {
+        let mut thunk = Thunk::new(some_closure(), IdentKind::Let());
         Marker::Thunk(thunk.mk_update_frame().unwrap())
     }
 
-    fn some_cont_marker<'g>(gen: &'g Generation) -> Marker<'g> {
-        Marker::Cont(some_cont(&gen), 42, TermPos::None)
+    fn some_cont_marker() -> Marker {
+        Marker::Cont(some_cont(), 42, TermPos::None)
     }
 
     #[test]
     fn marker_differentiates() {
-        let gen = Generation::new();
-        assert!(some_arg_marker(&gen).is_arg());
-        assert!(some_thunk_marker(&gen).is_thunk());
-        assert!(some_cont_marker(&gen).is_cont());
+        assert!(some_arg_marker().is_arg());
+        assert!(some_thunk_marker().is_thunk());
+        assert!(some_cont_marker().is_cont());
     }
 
     #[test]
     fn pushing_and_popping_args() {
-        let gen = Generation::new();
         let mut s = Stack::new();
         assert_eq!(0, s.count_args());
 
-        s.push_arg(some_closure(&gen), TermPos::None);
-        s.push_arg(some_closure(&gen), TermPos::None);
+        s.push_arg(some_closure(), TermPos::None);
+        s.push_arg(some_closure(), TermPos::None);
         assert_eq!(2, s.count_args());
-        assert_eq!(some_closure(&gen), s.pop_arg().expect("Already checked").0);
+        assert_eq!(some_closure(), s.pop_arg().expect("Already checked").0);
         assert_eq!(1, s.count_args());
     }
 
@@ -389,10 +386,9 @@ mod tests {
         let mut s = Stack::new();
         assert_eq!(0, s.count_thunks());
 
-        let gen = Generation::new();
-        let mut thunk = Thunk::new(some_closure(&gen), IdentKind::Let());
+        let mut thunk = Thunk::new(some_closure(), IdentKind::Let());
         s.push_thunk(thunk.mk_update_frame().unwrap());
-        thunk = Thunk::new(some_closure(&gen), IdentKind::Let());
+        thunk = Thunk::new(some_closure(), IdentKind::Let());
         s.push_thunk(thunk.mk_update_frame().unwrap());
 
         assert_eq!(2, s.count_thunks());
@@ -402,27 +398,24 @@ mod tests {
 
     #[test]
     fn thunk_blackhole() {
-        let gen = Generation::new();
-        let mut thunk = Thunk::new(some_closure(&gen), IdentKind::Let());
+        let mut thunk = Thunk::new(some_closure(), IdentKind::Let());
         let thunk_upd = thunk.mk_update_frame();
         assert_matches!(thunk_upd, Ok(..));
         assert_matches!(thunk.mk_update_frame(), Err(..));
-        thunk_upd.unwrap().update(some_closure(&gen));
+        thunk_upd.unwrap().update(some_closure());
         assert_matches!(thunk.mk_update_frame(), Ok(..));
     }
 
     #[test]
     fn pushing_and_popping_conts() {
-        let gen = Generation::new();
-
         let mut s = Stack::new();
         assert_eq!(0, s.count_conts());
 
-        s.push_op_cont(some_cont(&gen), 3, TermPos::None);
-        s.push_op_cont(some_cont(&gen), 4, TermPos::None);
+        s.push_op_cont(some_cont(), 3, TermPos::None);
+        s.push_op_cont(some_cont(), 4, TermPos::None);
         assert_eq!(2, s.count_conts());
         assert_eq!(
-            (some_cont(&gen), 4, TermPos::None),
+            (some_cont(), 4, TermPos::None),
             s.pop_op_cont().expect("Already checked")
         );
         assert_eq!(1, s.count_conts());
@@ -430,15 +423,13 @@ mod tests {
 
     #[test]
     fn pushing_and_poping_strictness_markers() {
-        let gen = Generation::new();
-
         let mut s = Stack::new();
         assert_eq!(0, s.count_args());
 
         s.push_strictness(true);
         assert_eq!(0, s.count_args());
-        s.push_arg(some_closure(&gen), TermPos::None);
-        s.push_arg(some_closure(&gen), TermPos::None);
+        s.push_arg(some_closure(), TermPos::None);
+        s.push_arg(some_closure(), TermPos::None);
         assert_eq!(2, s.count_args());
         s.push_strictness(false);
         assert_eq!(0, s.count_args());
