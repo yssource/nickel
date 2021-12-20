@@ -1,18 +1,19 @@
 use std::{
     any::type_name,
-    borrow::Borrow,
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
-    ops::Deref,
     ptr,
     rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering::Relaxed},
+    sync::atomic::{AtomicUsize, Ordering::Relaxed}, mem,
 };
+
+use gc::Gc;
 
 use crate::blocks::{Blocks, Header};
 
 mod blocks;
+mod gc;
 mod internals;
 #[cfg(test)]
 mod tests;
@@ -23,65 +24,13 @@ pub struct RootStatic<T: 'static + GC> {
     _data: PhantomData<T>,
 }
 
-impl<S: GC + 'static> RootStatic<S> {
-    /// This `RootStatic<T>::from_gc` should be prefered over the `From` impl to aid with inference.
-    pub fn from_gc<T: GC>(gc: Gc<T>) -> RootStatic<S> {
-        // See `TraceAt` docs for why we ignore the lint.
-        #[allow(clippy::mutable_key_type)]
-        let roots = internals::ROOTS.with(|roots| unsafe { &mut *roots.get() });
-        let trace_at = Rc::new(RootAt::of_val(gc));
-        roots.insert(trace_at.clone());
-
-        let header = Header::from_ptr(trace_at.ptr.load(Relaxed));
-        dbg!(header);
-        Header::checksum(header);
-
-        RootStatic {
-            trace_at,
-            _data: PhantomData,
-        }
-    }
-
-    /// This is safe since this GC is single threaded.
-    /// TODO I need to double check my assumtions here.
-    pub fn get(&self) -> &S {
-        let b: &RootAt = self.trace_at.borrow();
-        unsafe { &*(b.ptr.load(Relaxed) as *const S) }
-    }
-}
-
-impl<S: GC + 'static> Deref for RootStatic<S> {
-    type Target = S;
-
-    fn deref(&self) -> &Self::Target {
-        self.get()
-    }
-}
-
-impl<S: GC + 'static> Drop for RootStatic<S> {
-    fn drop(&mut self) {
-        if Rc::strong_count(&self.trace_at) == 2 {
-            // See `TraceAt` docs for why we ignore the lint.
-            #[allow(clippy::mutable_key_type)]
-            let roots = internals::ROOTS.with(|roots| unsafe { &mut *roots.get() });
-            roots.remove(&self.trace_at);
-        }
-    }
-}
-
-impl<'r, T: GC + 'static> From<Gc<'r, T>> for RootStatic<T> {
-    fn from(gc: Gc<'r, T>) -> Self {
-        RootStatic::<T>::from_gc(gc)
-    }
-}
-
 #[derive(Clone)]
 pub struct Root {
     trace_at: Rc<RootAt>,
 }
 
 impl Root {
-    /// This `Root::from_gc` should be prefered over the `From` impl to aid with inference.
+    /// This `Root::from_gc` should be preferred over the `From` impl to aid with inference.
     pub fn from_gc<T: GC>(gc: Gc<T>) -> Root {
         // See `TraceAt` docs for why we ignore the lint.
         #[allow(clippy::mutable_key_type)]
@@ -94,6 +43,23 @@ impl Root {
         Header::checksum(header);
 
         Root { trace_at }
+    }
+
+    /// This is horribly unsafe!!!
+    /// It only exists because migrating from `Rc<T>` to `Gc<'static, T>`
+    /// is much simpler than migrating to the safe `Gc<'generation, T>` API.
+    ///
+    /// # Safety
+    ///
+    /// This function runs destructors and deallocates memory.
+    /// Improper usage will result in use after frees,
+    /// segfaults, and every other bad thing you can think of.
+    ///
+    /// By using this function you must guarantee:
+    /// 1. No `Gc<T>`'s exist on this thread, unless they transitively pointed to by a `Root`.
+    /// 2. No references to any `Gc`s or their contents exist in this thread.
+    pub unsafe fn collect_garbage() {
+        internals::run_evac()
     }
 }
 
@@ -111,69 +77,6 @@ impl Drop for Root {
 impl<'r, T: GC> From<Gc<'r, T>> for Root {
     fn from(gc: Gc<'r, T>) -> Self {
         Root::from_gc(gc)
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-pub struct Gc<'g, T>(pub &'g T, pub P);
-
-impl<'g, T: Debug> Gc<'g, T> {
-    /// # Safety
-    /// You should never construct a `Gc`.
-    /// `P` exists to allow destructuring, but not construction.
-    #[inline(always)]
-    pub unsafe fn new(t: &'g T) -> Self {
-        dbg!(t);
-        dbg!(t as *const T);
-        Gc(t, P(()))
-    }
-}
-
-unsafe impl<'g, T: GC> GC for Gc<'g, T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
-        // TODO this seems like it could cause issues, since `GC: Copy`.
-        // Fix it by replacing `&self` with `*const Self`
-        unsafe { &mut *(direct_gc_ptrs as *mut Vec<TraceAt>) }.push(TraceAt::of_val(s))
-    }
-
-    const SAFE_TO_DROP: bool = true;
-}
-
-/// Just here to prevent construction of `Gc` & `Box`.
-/// Use `_` to pattern match against `Gc` & `Box`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct P(());
-
-impl<'r, T> Copy for Gc<'r, T> {}
-
-impl<'r, T> Clone for Gc<'r, T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<'r, T> Deref for Gc<'r, T> {
-    type Target = T;
-    fn deref(&self) -> &T {
-        self.0
-    }
-}
-
-impl<'r, T> AsRef<T> for Gc<'r, T> {
-    fn as_ref(&self) -> &T {
-        self.0
-    }
-}
-
-impl<'r, T> Borrow<T> for Gc<'r, T> {
-    fn borrow(&self) -> &T {
-        self.0
-    }
-}
-
-impl<'r, T: Debug> Debug for Gc<'r, T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Gc").field(self.0).finish()
     }
 }
 
@@ -334,6 +237,15 @@ impl From<&GcInfo> for GcTypeId {
     }
 }
 
+/// This is only safe because the only way to free `Gc`s
+/// is with `unsafe fn Root::collect_garbage()`
+pub fn gc<T: GC + Debug>(t: T) -> Gc<'static, T> {
+    unsafe {
+        let gen = Generation::new();
+        mem::transmute(gen.gc(t))
+    }
+}
+
 pub struct Generation {
     nursery: &'static UnsafeCell<Blocks>,
 }
@@ -418,24 +330,27 @@ impl Default for Generation {
 
 impl Drop for Generation {
     fn drop(&mut self) {
-        let last_of_gen = unsafe {
+        // For now I'm only using static lifetimes and collect will be unsafe.
+        // This compromise is necessary to migrate the Nickel code base rapidly.
+
+        let _last_of_gen = unsafe {
             let blocks = &*self.nursery.get();
             blocks.ref_count == 0
         };
 
-        if !last_of_gen {
-            return;
-        }
+        // if !last_of_gen {
+        //     return;
+        // }
 
-        let no_roots = internals::ROOTS.with(|t| unsafe { (&*t.get()).is_empty() });
+        // let no_roots = internals::ROOTS.with(|t| unsafe { (&*t.get()).is_empty() });
 
-        if no_roots && last_of_gen {
-            // Drop the Blocks
-            unsafe {
-                Box::from_raw(self.nursery as *const UnsafeCell<Blocks> as *mut UnsafeCell<Blocks>)
-            };
-        } else {
-            unsafe { internals::run_evac() }
-        }
+        // if no_roots && last_of_gen {
+        //     // Drop the Blocks
+        //     unsafe {
+        //         Box::from_raw(self.nursery as *const UnsafeCell<Blocks> as *mut UnsafeCell<Blocks>)
+        //     };
+        // } else {
+        //     unsafe { internals::run_evac() }
+        // }
     }
 }

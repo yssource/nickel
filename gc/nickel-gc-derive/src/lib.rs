@@ -47,6 +47,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
             .iter()
             .enumerate()
             .map(|(i, Field { ty, .. })| {
+                let i = syn::Index::from(i);
                 let arg = quote! {#i};
                 types.push(ty.clone());
                 arg
@@ -82,7 +83,8 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
         unnamed
             .iter()
             .enumerate()
-            .map(|(i, _)| quote! {#i})
+            .map(|(i, _)| syn::Index::from(i))
+            .map(|i| quote! {#i})
             .collect()
     };
 

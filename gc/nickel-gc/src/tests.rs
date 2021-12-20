@@ -55,6 +55,8 @@ fn lifetimes() {
         elm: one,
         next: Some(List::cons(&gen, one, None)),
     });
+
+    unsafe { Root::collect_garbage() };
 }
 
 #[test]
@@ -91,7 +93,10 @@ fn alloc() {
     }
 
     let block_count_1 = gc_stats::BLOCK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+
     drop(gen);
+    unsafe { Root::collect_garbage() };
+
     let block_count_2 = gc_stats::BLOCK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
     assert!(block_count < block_count_1);
     assert_eq!(block_count_2, 0);
@@ -115,6 +120,7 @@ fn roots() {
     let root2 = Root::from_gc(List::from_vec(&gen, &vec));
 
     drop(gen);
+    unsafe { Root::collect_garbage() };
 
     let gen = Generation::new();
     let gc1: Gc<Gc<List<String>>> = gen.from_root(root1.clone()).unwrap();
@@ -130,6 +136,7 @@ fn roots() {
     assert_eq!(&vec, &vec2);
 
     drop(gen);
+    unsafe { Root::collect_garbage() };
 
     let gen = Generation::new();
     let gc1: Gc<Gc<List<String>>> = gen.from_root(root1).unwrap();
@@ -143,4 +150,6 @@ fn roots() {
 
     assert_eq!(&vec, &vec1);
     assert_eq!(&vec, &vec2);
+
+    unsafe { Root::collect_garbage() };
 }
