@@ -3,9 +3,11 @@ use std::{
     cell::UnsafeCell,
     fmt::Debug,
     marker::PhantomData,
+    mem,
+    ops::Deref,
     ptr,
     rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering::Relaxed}, mem,
+    sync::atomic::{AtomicUsize, Ordering::Relaxed},
 };
 
 use gc::Gc;
@@ -150,6 +152,20 @@ pub unsafe trait GC {
     const SAFE_TO_DROP: bool = true;
 }
 
+#[macro_export]
+/// # Saftey
+/// Are you sure this type does not transitively contain any `Gc`s?
+macro_rules! unsafe_impl_gc_static {
+    ($ty:ty) => {
+        unsafe impl nickel_gc::GC for $ty
+        where
+            $ty: 'static,
+        {
+            const SAFE_TO_DROP: bool = true;
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GcInfo {
     size: u16,
@@ -162,7 +178,6 @@ pub struct GcInfo {
 
 impl GcInfo {
     pub fn of<T: GC>() -> GcInfo {
-        use std::mem;
         GcInfo {
             size: mem::size_of::<T>() as u16,
             align: mem::align_of::<T>() as u16,
@@ -211,10 +226,21 @@ unsafe impl GC for i32 {}
 unsafe impl GC for i16 {}
 unsafe impl GC for i8 {}
 
+
+unsafe impl GC for f64 {}
+unsafe impl GC for f32 {}
+
+
+unsafe impl GC for bool {}
+
 unsafe impl GC for AtomicUsize {}
 unsafe impl GC for std::sync::atomic::AtomicIsize {}
 
 unsafe impl GC for String {
+    const SAFE_TO_DROP: bool = true;
+}
+
+unsafe impl GC for std::ffi::OsString {
     const SAFE_TO_DROP: bool = true;
 }
 
@@ -224,8 +250,43 @@ unsafe impl<T: GC> GC for Option<T> {
             T::trace(t, direct_gc_ptrs)
         }
     }
+}
 
-    const SAFE_TO_DROP: bool = false;
+
+unsafe impl<T: GC> GC for std::cell::RefCell<T> {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        let t = s.borrow();
+        T::trace(&t, direct_gc_ptrs)
+    }
+}
+
+unsafe impl<T: GC> GC for Rc<T> {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        let t = s.deref();
+        T::trace(t, direct_gc_ptrs)
+    }
+}
+
+unsafe impl<T: GC> GC for Box<T> {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        let t = s.deref();
+        T::trace(t, direct_gc_ptrs)
+    }
+}
+
+unsafe impl<T: GC> GC for Vec<T> {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        s.iter().for_each(|t| T::trace(t, direct_gc_ptrs))
+    }
+}
+
+unsafe impl<K: GC, V: GC> GC for std::collections::HashMap<K, V> {
+    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        s.iter().for_each(|(k, v)| {
+            K::trace(k, direct_gc_ptrs);
+            V::trace(v, direct_gc_ptrs);
+        })
+    }
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]

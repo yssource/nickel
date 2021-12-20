@@ -4,6 +4,7 @@
 //! raw byte indices.  They are prefixed with Raw to differentiate them from codespan's types and
 //! indicate that they do not store human friendly data like lines and columns.
 use codespan::{ByteIndex, FileId};
+use nickel_gc::{GC, unsafe_impl_gc_static};
 use std::cmp::Ordering;
 
 /// A position identified by a byte offset in a file.
@@ -12,6 +13,9 @@ pub struct RawPos {
     pub src_id: FileId,
     pub index: ByteIndex,
 }
+
+
+unsafe_impl_gc_static!(RawPos);
 
 /// A position span identified by a starting byte offset and an ending byte offset in a file.
 ///
@@ -22,6 +26,9 @@ pub struct RawSpan {
     pub start: ByteIndex,
     pub end: ByteIndex,
 }
+
+unsafe_impl_gc_static!(RawSpan);
+
 
 /// The position span of a term.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -35,6 +42,8 @@ pub enum TermPos {
     /// transformations).
     None,
 }
+
+unsafe_impl_gc_static!(TermPos);
 
 impl TermPos {
     /// Apply a transformation to the inner position, if any.

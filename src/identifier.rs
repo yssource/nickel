@@ -1,10 +1,12 @@
 //! Define the type of an identifier.
+use nickel_gc::GC;
+use nickel_gc_derive::GC;
 use serde::{Deserialize, Serialize};
 use std::{fmt, hash::Hash};
 
 use crate::position::TermPos;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, GC)]
 #[serde(into = "String", from = "String")]
 pub struct Ident(pub String, pub TermPos);
 

@@ -86,6 +86,8 @@
 //! probably suboptimal for a functional language and is unable to collect cyclic data, which may
 //! appear inside recursive records in the future. An adapted garbage collector is probably
 //! something to consider at some point.
+use nickel_gc_derive::GC;
+
 use crate::cache::ImportResolver;
 use crate::environment::Environment as GenericEnvironment;
 use crate::error::EvalError;
@@ -107,7 +109,7 @@ use std::rc::{Rc, Weak};
 /// we can thus error out before overflowing the stack or looping forever. Finally, once the
 /// content of a thunk has been evaluated, the thunk is updated with the new value and flagged as
 /// evaluated, so that future accesses won't even push an update frame on the stack.
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, GC)]
 pub enum ThunkState {
     Blackholed,
     Suspended,
@@ -115,7 +117,7 @@ pub enum ThunkState {
 }
 
 /// The mutable data stored inside a thunk.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, GC)]
 pub struct ThunkData {
     inner: InnerThunkData,
     state: ThunkState,
@@ -126,7 +128,7 @@ pub struct ThunkData {
 /// - A reversible thunk, that can be restored to its original expression. Used to implement
 /// recursive merging of records and overriding (see the [RFC
 /// overriding](https://github.com/tweag/nickel/pull/330))
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, GC)]
 pub enum InnerThunkData {
     Standard(Closure),
     Reversible {
@@ -225,7 +227,7 @@ impl ThunkData {
 /// always give the same result, but some others, such as the ones containing recursive references
 /// inside a record may be invalidated by merging, and thus need to store the unaltered original
 /// expression. Those aspects are mainly handled in [InnerThunkData].
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, GC)]
 pub struct Thunk {
     data: Rc<RefCell<ThunkData>>,
     ident_kind: IdentKind,
@@ -362,7 +364,7 @@ pub enum StackElem {
 }
 
 /// Kind of an identifier.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, GC)]
 pub enum IdentKind {
     Let(),
     Lam(),
@@ -370,7 +372,7 @@ pub enum IdentKind {
 }
 
 /// A closure, a term together with an environment.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, GC)]
 pub struct Closure {
     pub body: RichTerm,
     pub env: Environment,

@@ -7,6 +7,8 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
+use nickel_gc_derive::GC;
+
 /// An environment as a linked-list of hashmaps.
 ///
 /// Each node of the linked-list corresponds to what is called
@@ -25,7 +27,7 @@ use std::rc::Rc;
 /// the current has been cloned and inserted in the previous environment already,
 /// so it can safely be reset as a new hashmap.
 /// The previous layers are set in order from the most recent one to the oldest.
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Default, GC)]
 pub struct Environment<K: Hash + Eq, V: PartialEq> {
     current: Rc<HashMap<K, V>>,
     previous: RefCell<Option<Rc<Environment<K, V>>>>,

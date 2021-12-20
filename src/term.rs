@@ -22,6 +22,7 @@ use crate::label::Label;
 use crate::position::TermPos;
 use crate::types::{AbsType, Types};
 use codespan::FileId;
+use nickel_gc_derive::GC;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -32,7 +33,7 @@ use std::fmt;
 /// Parsed terms also need to store their position in the source for error reporting.  This is why
 /// this type is nested with [`RichTerm`](type.RichTerm.html).
 ///
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, GC)]
 #[serde(untagged)]
 pub enum Term {
     /// The null value.
@@ -144,6 +145,7 @@ pub enum Term {
     Import(OsString),
     /// A resolved import (which has already been loaded and parsed).
     #[serde(skip)]
+    #[unsafe_impl_gc_static]
     ResolvedImport(FileId),
     #[serde(skip)]
     ParseError,
@@ -155,7 +157,7 @@ impl From<MetaValue> for Term {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone, GC)]
 pub struct RecordAttrs {
     pub open: bool,
 }
@@ -174,7 +176,7 @@ impl RecordAttrs {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone)]
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Copy, Clone, GC)]
 pub enum MergePriority {
     Default,
     Normal,
@@ -186,13 +188,13 @@ impl Default for MergePriority {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, GC)]
 pub struct Contract {
     pub types: Types,
     pub label: Label,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, GC)]
 pub struct MetaValue {
     pub doc: Option<String>,
     pub types: Option<Contract>,
@@ -277,7 +279,7 @@ impl MetaValue {
 
 /// A chunk of a string with interpolated expressions inside. Same as `Either<String,
 /// RichTerm>` but with explicit constructor names.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, GC)]
 pub enum StrChunk<E> {
     /// A string literal.
     Literal(String),
@@ -570,7 +572,7 @@ impl Term {
 /// elseBlock`, `if-then-else` can be seen as a unary operator taking a `Bool` argument and
 /// evaluating to either the first projection `fun x y => x` or the second projection `fun x y =>
 /// y`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, GC)]
 pub enum UnaryOp {
     /// If-then-else.
     Ite(),
@@ -710,7 +712,7 @@ pub enum UnaryOp {
 }
 
 /// Primitive binary operators
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, GC)]
 pub enum BinaryOp {
     /// Addition of numerals.
     Plus(),
@@ -803,7 +805,7 @@ impl BinaryOp {
 
 /// Primitive n-ary operators. Unary and binary operator make up for most of operators and are
 /// hence special cased. `NAryOp` handles strict operations of arity greater than 2.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, GC)]
 pub enum NAryOp {
     /// Replace a substring by another one in a string.
     StrReplace(),
@@ -854,7 +856,7 @@ pub enum TraverseMethod {
 }
 
 /// Wrap [terms](type.Term.html) with positional information.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, GC)]
 pub struct RichTerm {
     pub term: Box<Term>,
     pub pos: TermPos,

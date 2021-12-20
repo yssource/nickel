@@ -51,6 +51,8 @@
 //! otherwise.  Contract checks are introduced by `Promise` and `Assume` blocks or alternatively by
 //! enriched values `Contract` or `ContractDefault`. They ensure sane interaction between typed and
 //! untyped parts.
+use nickel_gc_derive::GC;
+
 use crate::identifier::Ident;
 use crate::term::make as mk_term;
 use crate::term::{BinaryOp, RichTerm, Term, UnaryOp};
@@ -59,7 +61,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 /// A Nickel type.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, GC)]
 pub enum AbsType<Ty> {
     /// The dynamic unitype, affected to values which type is not statically known or enforced.
     Dyn(),
@@ -150,7 +152,7 @@ impl<Ty> AbsType<Ty> {
 }
 
 /// Concrete, recursive type for a Nickel type.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, GC)]
 pub struct Types(pub AbsType<Box<Types>>);
 
 impl Types {

@@ -6,6 +6,7 @@ use crate::eval::Thunk;
 use crate::position::{RawSpan, TermPos};
 use crate::types::{AbsType, Types};
 use codespan::Files;
+use nickel_gc_derive::GC;
 
 pub mod ty_path {
     //! Type paths.
@@ -40,11 +41,13 @@ pub mod ty_path {
     //! indicating that the path leading to the subtype of interest goes through a record via a
     //! particular field.
 
+    use nickel_gc_derive::GC;
+
     use super::{AbsType, Types};
     use crate::identifier::Ident;
 
     /// An element of a path type.
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, GC)]
     pub enum Elem {
         Domain,
         Codomain,
@@ -229,7 +232,7 @@ pub mod ty_path {
 /// user-written contracts, but is toggled in the argument contract when the interpreter decomposes
 /// an higher order-contract. This also generalizes to higher types such as `((Num -> Num) -> Num)
 /// -> Num` where the polarity alternates each time.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, GC)]
 pub struct Label {
     /// The type checked by the original contract.
     pub types: Types,

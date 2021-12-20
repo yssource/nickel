@@ -1,6 +1,8 @@
 //! In this module, you have the main structures used in the destructuring feature of nickel.
 //! Also, there are implementation managing the generation of a contract from a pattern.
 
+use nickel_gc_derive::GC;
+
 use crate::identifier::Ident;
 use crate::label::Label;
 use crate::term::{Contract, MetaValue, RecordAttrs, RichTerm, Term};
@@ -9,7 +11,7 @@ use crate::types::{AbsType, Types};
 /// A match field in a `Destruct` pattern.
 /// every field can contain a `MetaValue` either simply because they are annotated either because
 /// they are of the form `a ? "something"` (default value).
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, GC)]
 pub enum Match {
     /// `{..., a=b, ...}` will bind the field a of the record to variable a. Here, a is the first
     /// field of this variant and b the optional one. The last field can actualy be a nested
@@ -31,7 +33,7 @@ pub enum LastMatch {
 }
 
 /// A destructuring pattern without the `x @` part.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, GC)]
 pub enum Destruct {
     /// A record pattern, the onlyone implemented for now.
     Record(Vec<Match>, bool, Option<Ident>),
