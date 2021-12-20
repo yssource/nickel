@@ -50,6 +50,9 @@ nickel-gc-derive = { path = "gc/nickel-gc-derive" }
 [dev-dependencies]
 pretty_assertions = "0.5.1"
 assert_matches = "1.4.0"
+criterion = "0.3"
+pprof = { version = "0.4.4", features = ["criterion", "flamegraph"] }
+utilities = {path = "utilities"}
 
 [workspace]
 members = [
@@ -58,3 +61,29 @@ members = [
     "gc/nickel-gc",
     "gc/nickel-gc-derive"
 ]
+
+[profile.release]
+debug = true
+
+[lib]
+bench = false
+
+[[bench]]
+name = "numeric"
+harness = false
+
+# [[bench]]
+# name = "functions"
+# harness = false
+
+[[bench]]
+name = "lists"
+harness = false
+
+[[bench]]
+name = "records"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
