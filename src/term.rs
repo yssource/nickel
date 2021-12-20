@@ -16,6 +16,7 @@
 //! contracts, default values, documentation, etc. They bring such usually external object down to
 //! the term level, and together with [merge](../merge/index.html), they allow for flexible and
 //! modular definitions of contracts, record and metadata all together.
+use crate::destruct::Destruct;
 use crate::identifier::Ident;
 use crate::label::Label;
 use crate::position::TermPos;
@@ -63,6 +64,8 @@ pub enum Term {
     /// A let binding.
     #[serde(skip)]
     Let(Ident, RichTerm, RichTerm),
+    #[serde(skip)]
+    LetPattern(Option<Ident>, Destruct, RichTerm, RichTerm),
     /// An application.
     #[serde(skip)]
     App(RichTerm, RichTerm),
@@ -146,6 +149,12 @@ pub enum Term {
     ParseError,
 }
 
+impl From<MetaValue> for Term {
+    fn from(m: MetaValue) -> Self {
+        Term::MetaValue(m)
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 pub struct RecordAttrs {
     pub open: bool,
@@ -201,6 +210,12 @@ impl From<RichTerm> for MetaValue {
             priority: Default::default(),
             value: Some(rt),
         }
+    }
+}
+
+impl Default for MetaValue {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -325,6 +340,7 @@ impl Term {
                 meta.value.iter_mut().for_each(func);
             }
             Let(_, ref mut t1, ref mut t2)
+            | LetPattern(_, _, ref mut t1, ref mut t2)
             | App(ref mut t1, ref mut t2)
             | Op2(_, ref mut t1, ref mut t2) => {
                 func(t1);
@@ -361,6 +377,7 @@ impl Term {
             Term::Wrapped(_, _) => Some("Wrapped"),
             Term::MetaValue(_) => Some("Metavalue"),
             Term::Let(_, _, _)
+            | Term::LetPattern(_, _, _, _)
             | Term::App(_, _)
             | Term::Var(_)
             | Term::Switch(..)
@@ -436,6 +453,7 @@ impl Term {
             Term::Var(id) => id.to_string(),
             Term::ParseError => String::from("<parse error>"),
             Term::Let(_, _, _)
+            | Term::LetPattern(_, _, _, _)
             | Term::App(_, _)
             | Term::Switch(..)
             | Term::Op1(_, _)
@@ -487,6 +505,7 @@ impl Term {
             | Term::List(_)
             | Term::Sym(_) => true,
             Term::Let(_, _, _)
+            | Term::LetPattern(_, _, _, _)
             | Term::App(_, _)
             | Term::Var(_)
             | Term::Switch(..)
@@ -522,6 +541,7 @@ impl Term {
             | Term::Enum(_)
             | Term::Sym(_) => true,
             Term::Let(_, _, _)
+            | Term::LetPattern(_, _, _, _)
             | Term::Record(..)
             | Term::List(_)
             | Term::Fun(_, _)
@@ -912,6 +932,14 @@ impl RichTerm {
                     pos,
                 }
             }
+            Term::LetPattern(id, pat, t1, t2) => {
+                let t1 = t1.traverse(f, state, method)?;
+                let t2 = t2.traverse(f, state, method)?;
+                RichTerm {
+                    term: Box::new(Term::LetPattern(id, pat, t1, t2)),
+                    pos,
+                }
+            }
             Term::App(t1, t2) => {
                 let t1 = t1.traverse(f, state, method)?;
                 let t2 = t2.traverse(f, state, method)?;
@@ -1201,6 +1229,27 @@ pub mod make {
         I: Into<Ident>,
     {
         Term::Let(id.into(), t1.into(), t2.into()).into()
+    }
+
+    pub fn let_pat<I, D, T1, T2>(id: Option<I>, pat: D, t1: T1, t2: T2) -> RichTerm
+    where
+        T1: Into<RichTerm>,
+        T2: Into<RichTerm>,
+        D: Into<Destruct>,
+        I: Into<Ident>,
+    {
+        match pat.into() {
+            d @ (Destruct::Record(..) | Destruct::List(_)) => {
+                Term::LetPattern(id.map(|i| i.into()), d, t1.into(), t2.into()).into()
+            }
+            Destruct::Empty => {
+                if let Some(id) = id {
+                    let_in(id, t1, t2)
+                } else {
+                    Term::Null.into()
+                }
+            }
+        }
     }
 
     #[cfg(test)]
