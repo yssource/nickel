@@ -23,7 +23,7 @@ impl Root {
         roots.insert(trace_at.clone());
 
         let header = Header::from_ptr(trace_at.ptr.load(Relaxed));
-        dbg!(header);
+        // dbg!(header);
         Header::checksum(header);
 
         Root { trace_at }
@@ -92,7 +92,7 @@ pub struct RootAt {
 impl RootAt {
     pub fn of_val<T: GC>(t: crate::gc::Gc<T>) -> Self {
         let obj_ptr = t.0 as *const T;
-        dbg!(obj_ptr);
+        // dbg!(obj_ptr);
         let header = Header::from_ptr(obj_ptr as usize);
         Header::checksum(header);
 

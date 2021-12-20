@@ -11,7 +11,7 @@ use crate::internals::{self, gc_stats};
 
 use super::{GcInfo, GcTypeId};
 
-pub const HEADER_ALIGNMENT_BITS: usize = 12;
+pub const HEADER_ALIGNMENT_BITS: usize = 13;
 pub const BLOCK_SIZE: usize = 1 << HEADER_ALIGNMENT_BITS;
 pub const BLOCK_LAYOUT: Layout = match Layout::from_size_align(BLOCK_SIZE, BLOCK_SIZE) {
     Ok(l) => l,
@@ -80,7 +80,7 @@ impl Header {
 
         gc_stats::BLOCK_COUNT.fetch_add(1, atomic::Ordering::Relaxed);
 
-        dbg!(header_ptr);
+        // dbg!(header_ptr);
         header_ptr
     }
 

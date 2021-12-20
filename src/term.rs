@@ -1145,6 +1145,13 @@ impl RichTerm {
                     set2.remove(id);
                     set.extend(set2);
                 }
+                Term::LetPattern(id, _, t2, t3) => {
+                    collect_free_var(t2, set);
+                    let mut set2 = HashSet::new();
+                    collect_free_var(t3, &mut set2);
+                    id.as_ref().map(|id| set2.remove(id));
+                    set.extend(set2);
+                }
                 Term::App(t1, t2) => {
                     collect_free_var(t1, set);
                     collect_free_var(t2, set);

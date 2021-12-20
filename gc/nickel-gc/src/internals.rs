@@ -68,17 +68,17 @@ unsafe fn evac(
     to_trace: &mut Vec<TraceAt>,
     marker: bool,
 ) -> *const u8 {
-    dbg!(&trace_at);
-    dbg!(&to_trace);
+    // dbg!(&trace_at);
+    // dbg!(&to_trace);
 
     let old_ptr = *trace_at.ptr_to_gc;
-    dbg!(old_ptr);
+    // dbg!(old_ptr);
 
     let header_ptr = Header::from_ptr(old_ptr as usize) as *mut Header;
-    dbg!(header_ptr);
+    // dbg!(header_ptr);
     let header = &mut *(header_ptr);
     Header::checksum(header);
-    dbg!(&header);
+    // dbg!(&header);
 
     assert!((old_ptr as usize - header_ptr as usize) <= BLOCK_SIZE);
     let already_evaced = header.evaced.get(&old_ptr);
@@ -87,12 +87,12 @@ unsafe fn evac(
         *new_ptr
     } else if header.marked == marker && already_evaced.is_none() {
         let new_ptr = new_nursery.alloc(header.info);
-        dbg!(new_ptr);
+        // dbg!(new_ptr);
         ptr::copy_nonoverlapping(old_ptr, new_ptr, header.info.size as usize);
         (trace_at.trace_fn)(new_ptr, to_trace);
         assert!(header.evaced.insert(old_ptr, new_ptr).is_none());
-        dbg!(&to_trace);
-        dbg!(&header.evaced);
+        // dbg!(&to_trace);
+        // dbg!(&header.evaced);
 
         new_ptr as *const u8
     } else {
