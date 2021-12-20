@@ -1,9 +1,8 @@
 use std::{cell::UnsafeCell, mem, ptr};
 
-use super::{
-    blocks::{Blocks, Header, BLOCK_SIZE},
-    RootAt, TraceAt,
-};
+use crate::blocks::*;
+use crate::root::*;
+
 
 pub mod gc_stats {
     use std::sync::atomic::AtomicUsize;

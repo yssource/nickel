@@ -8,6 +8,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 
 use nickel_gc_derive::GC;
+use nickel_gc::{Gc, GC};
 
 /// An environment as a linked-list of hashmaps.
 ///
@@ -28,12 +29,12 @@ use nickel_gc_derive::GC;
 /// so it can safely be reset as a new hashmap.
 /// The previous layers are set in order from the most recent one to the oldest.
 #[derive(Debug, PartialEq, Default, GC)]
-pub struct Environment<K: Hash + Eq, V: PartialEq> {
+pub struct Environment<K: Hash + Eq + GC, V: PartialEq + GC> {
     current: Rc<HashMap<K, V>>,
-    previous: RefCell<Option<Rc<Environment<K, V>>>>,
+    previous: RefCell<Option<Gc<Environment<K, V>>>>,
 }
 
-impl<K: Hash + Eq, V: PartialEq> Clone for Environment<K, V> {
+impl<K: Hash + Eq + GC, V: PartialEq + GC> Clone for Environment<K, V> {
     /// Clone has to create a new environment, while ensuring that previous
     /// defined layers are accessible but not modifiable anymore.
     /// For that, it checks if the current Environment has already be cloned,
@@ -42,7 +43,7 @@ impl<K: Hash + Eq, V: PartialEq> Clone for Environment<K, V> {
     fn clone(&self) -> Self {
         if !self.current.is_empty() && !self.was_cloned() {
             self.previous.replace_with(|old| {
-                Some(Rc::new(Environment {
+                Some(Gc::new(Environment {
                     current: self.current.clone(),
                     previous: RefCell::new(old.clone()),
                 }))
@@ -55,7 +56,7 @@ impl<K: Hash + Eq, V: PartialEq> Clone for Environment<K, V> {
     }
 }
 
-impl<K: Hash + Eq, V: PartialEq> Environment<K, V> {
+impl<K: Hash + Eq + GC, V: PartialEq +GC> Environment<K, V> {
     /// Creates a new empty Environment.
     pub fn new() -> Self {
         Self {
@@ -92,7 +93,8 @@ impl<K: Hash + Eq, V: PartialEq> Environment<K, V> {
                     .borrow()
                     .as_ref()
                     // SAFETY: created from Rc, so cannot be null
-                    .map(|prev| unsafe { NonNull::new_unchecked(Rc::as_ptr(prev) as *mut _) })
+                    // TODO(avi) revist this
+                    .map(|prev| unsafe { NonNull::new_unchecked(Gc::as_ptr(*prev) as *mut _) })
             },
             _marker: PhantomData,
         }
@@ -133,7 +135,7 @@ impl<K: Hash + Eq, V: PartialEq> Environment<K, V> {
     }
 }
 
-impl<K: Hash + Eq, V: PartialEq> FromIterator<(K, V)> for Environment<K, V> {
+impl<K: GC + Hash + Eq, V: GC + PartialEq> FromIterator<(K, V)> for Environment<K, V> {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
         Self {
             current: Rc::new(HashMap::from_iter(iter)),
@@ -142,7 +144,7 @@ impl<K: Hash + Eq, V: PartialEq> FromIterator<(K, V)> for Environment<K, V> {
     }
 }
 
-impl<K: Hash + Eq, V: PartialEq> Extend<(K, V)> for Environment<K, V> {
+impl<K: GC + Hash + Eq, V: GC + PartialEq> Extend<(K, V)> for Environment<K, V> {
     fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
         // if can mut. borrow current, then we just extend, otherwise it means
         // it was cloned, and we recreate a new map from iter for current
@@ -159,12 +161,12 @@ impl<K: Hash + Eq, V: PartialEq> Extend<(K, V)> for Environment<K, V> {
 ///
 /// [`iter_layers`]: Environment::iter_layers
 ///
-pub struct EnvLayerIter<'a, K: 'a + Hash + Eq, V: 'a + PartialEq> {
+pub struct EnvLayerIter<'a, K: GC + 'a + Hash + Eq, V: GC + 'a + PartialEq> {
     env: Option<NonNull<Environment<K, V>>>,
     _marker: PhantomData<&'a Environment<K, V>>,
 }
 
-impl<'a, K: 'a + Hash + Eq, V: 'a + PartialEq> Iterator for EnvLayerIter<'a, K, V> {
+impl<'a, K: GC + 'a + Hash + Eq, V: GC + 'a + PartialEq> Iterator for EnvLayerIter<'a, K, V> {
     type Item = Rc<HashMap<K, V>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -177,7 +179,8 @@ impl<'a, K: 'a + Hash + Eq, V: 'a + PartialEq> Iterator for EnvLayerIter<'a, K, 
                 .borrow()
                 .as_ref()
                 // SAFETY: can safely create NonNull from Rc
-                .map(|prev| NonNull::new_unchecked(Rc::as_ptr(prev) as *mut _));
+                // TODO(avi) revist this
+                .map(|prev| NonNull::new_unchecked(Gc::as_ptr(*prev) as *mut _));
             res
         })
     }
@@ -228,7 +231,7 @@ impl<'a, K: 'a + Hash + Eq, V: 'a + PartialEq> Iterator for EnvIter<'a, K, V> {
 mod tests {
     use super::*;
 
-    impl<K: Hash + Eq, V: PartialEq> Environment<K, V> {
+    impl<K: GC + Hash + Eq, V: GC + PartialEq> Environment<K, V> {
         pub fn depth(&self) -> usize {
             1 + self.previous.borrow().as_ref().map_or(0, |p| p.depth())
         }

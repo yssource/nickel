@@ -1,12 +1,12 @@
 use std::sync::atomic::AtomicIsize;
+use std::fmt::Debug;
 
-use crate::internals::gc_stats;
+use crate::{internals::gc_stats, GC, gc::Gc, generation::Generation, root::Root};
 
-use super::*;
 
 mod nickel_gc {
     #[allow(unused_imports)]
-    pub use super::*;
+    pub use crate::*;
 }
 
 use nickel_gc_derive::*;

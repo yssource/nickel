@@ -40,6 +40,8 @@
 //! ```
 //!
 //! In non-strict mode, all let-bound expressions are given type `Dyn`, unless annotated.
+use nickel_gc_derive::GC;
+
 use crate::cache::ImportResolver;
 use crate::environment::Environment as GenericEnvironment;
 use crate::error::TypecheckError;
@@ -1099,7 +1101,7 @@ pub fn infer_type(t: &Term) -> TypeWrapper {
 
 /// The types on which the unification algorithm operates, which may be either a concrete type, a
 /// type constant or a unification variable.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, GC)]
 pub enum TypeWrapper {
     /// A concrete type (like `Num` or `Str -> Str`).
     Concrete(AbsType<Box<TypeWrapper>>),

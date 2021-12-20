@@ -144,7 +144,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
                 let e = struc(named, &mut types);
 
                 let e = quote! {
-                    let Self {#(#names, )*} = s;
+                    let Self {#(#names, )* ..} = s;
                     #e
                 };
                 e
@@ -154,7 +154,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
                 let e = tuple(unnamed, &mut types);
 
                 let e = quote! {
-                    let Self (#(#names, )*) = s;
+                    let Self (#(#names, )* ..) = s;
                     #e
                 };
                 e
