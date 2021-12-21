@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering::Relaxed;
 
 use crate::GcInfo;
 use crate::blocks::Header;
-use crate::root::{Root, RootStatic};
+use crate::root::{Root, RootGc};
 use crate::{blocks::Blocks, internals, gc::Gc, GC};
 
 
@@ -54,33 +54,16 @@ impl Generation {
         }
     }
 
-    pub fn from_root_static<T: GC + Debug, S: GC + 'static>(
+    pub fn from_root_gc<T: GC , S: GC + 'static>(
         &self,
-        root: RootStatic<S>,
+        root: RootGc<S>,
     ) -> Option<Gc<T>> {
-        let ptr = root.trace_at.ptr.load(Relaxed);
+        let ptr = root.root.trace_at.ptr.load(Relaxed);
         let header = unsafe { &*Header::from_ptr(ptr) };
         if header.info == GcInfo::of::<T>() {
             unsafe { Some(Gc::new(&*(ptr as *const T))) }
         } else {
             None
-        }
-    }
-
-    pub fn try_from_root_static<T: GC + Debug, S: GC + 'static>(
-        &self,
-        root: RootStatic<S>,
-    ) -> Result<Gc<T>, String> {
-        let ptr = root.trace_at.ptr.load(Relaxed);
-        let header = unsafe { &*Header::from_ptr(ptr) };
-        if header.info == GcInfo::of::<T>() {
-            unsafe { Ok(Gc::new(&*(ptr as *const T))) }
-        } else {
-            Err(format!(
-                "The Root is of type:          `{:?}`\nyou tried to convert it to a: `{}`",
-                header,
-                type_name::<T>()
-            ))
         }
     }
 }

@@ -532,6 +532,8 @@ where
     let mut stack = Stack::new();
 
     loop {
+
+
         let Closure {
             body: RichTerm {
                 term: boxed_term,

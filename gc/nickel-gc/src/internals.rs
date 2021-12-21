@@ -1,13 +1,15 @@
+use std::sync::atomic::Ordering::Relaxed;
 use std::{cell::UnsafeCell, mem, ptr};
 
 use crate::blocks::*;
+use crate::internals::gc_stats::{BLOCK_COUNT, POST_BLOCK_COUNT};
 use crate::root::*;
-
 
 pub mod gc_stats {
     use std::sync::atomic::AtomicUsize;
 
     pub static BLOCK_COUNT: AtomicUsize = AtomicUsize::new(0);
+    pub static POST_BLOCK_COUNT: AtomicUsize = AtomicUsize::new(2);
 }
 
 thread_local! {
@@ -35,7 +37,7 @@ pub unsafe fn run_evac() {
     let mut to_trace = Vec::with_capacity(100);
 
     roots.iter().for_each(|root_at| {
-        let root_old_ptr = root_at.ptr.load(std::sync::atomic::Ordering::Relaxed) as *const u8;
+        let root_old_ptr = root_at.ptr.load(Relaxed) as *const u8;
         let root_old_ptr_clone = root_old_ptr;
         let root_trace_at = TraceAt {
             ptr_to_gc: &root_old_ptr,
@@ -46,9 +48,7 @@ pub unsafe fn run_evac() {
 
         // ~~This could be moved into evac~~, but that would add a unconditional Relaxed store.
         // For now it's better here.
-        root_at
-            .ptr
-            .store(new_ptr as usize, std::sync::atomic::Ordering::Relaxed);
+        root_at.ptr.store(new_ptr as usize, Relaxed);
 
         while let Some(trace_at) = to_trace.pop() {
             let new_ptr = evac(trace_at, &mut new_nursery, &mut to_trace, marker);
@@ -60,6 +60,7 @@ pub unsafe fn run_evac() {
     assert!(roots.is_empty());
     NURSERY.with(|r| mem::swap(&mut *r.get(), &mut new_nursery));
     assert!(new_nursery.blocks.is_empty());
+    POST_BLOCK_COUNT.store(BLOCK_COUNT.load(Relaxed), Relaxed);
 }
 
 unsafe fn evac(

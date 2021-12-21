@@ -1,11 +1,49 @@
-use std::{sync::atomic::{AtomicUsize, Ordering::Relaxed}, rc::Rc, mem, ptr, any::type_name, marker::PhantomData};
+use std::{
+    marker::PhantomData,
+    mem,
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering::Relaxed}, ops::Deref,
+};
 
-use crate::{blocks::Header, GC, gc::{Gc, self}, internals};
+use crate::{
+    blocks::Header,
+    gc::{self, Gc},
+    internals::{
+        self,
+        gc_stats::{BLOCK_COUNT, POST_BLOCK_COUNT},
+    },
+    AsStatic, GC,
+};
 
 #[derive(Clone)]
-pub struct RootStatic<T: 'static + GC> {
-    pub(crate) trace_at: Rc<RootAt>,
+pub struct RootGc<T: 'static + GC> {
+    pub(crate) root: Root,
     _data: PhantomData<T>,
+}
+
+impl<T: GC + AsStatic> RootGc<T>
+where
+    T::Static: GC,
+{
+    pub fn from_gc(gc: Gc<T>) -> RootGc<T::Static> {
+        unsafe { mem::transmute(Root::from_gc(gc)) }
+    }
+
+    /// This is safe since it gaurenees
+    pub fn with<A, F: FnOnce(&T) -> A>(&self, f: F) -> A {
+        let t: &T = unsafe { &*(self.root.trace_at.ptr.load(Relaxed) as *const T) };
+        f(t)
+    }
+}
+
+/// This impl is here to help migrate.
+/// It's not less safe than the rest currently, but it cannot be made fully safe.
+impl<T: GC> Deref for RootGc<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self.root.trace_at.ptr.load(Relaxed) as *const T) }
+    }
 }
 
 #[derive(Clone)]
@@ -43,7 +81,20 @@ impl Root {
     /// 1. No `Gc<T>`'s exist on this thread, unless they transitively pointed to by a `Root`.
     /// 2. No references to any `Gc`s or their contents exist in this thread.
     pub unsafe fn collect_garbage() {
-        internals::run_evac()
+        if BLOCK_COUNT.load(Relaxed) >= (2 * POST_BLOCK_COUNT.load(Relaxed)) {
+            internals::run_evac()
+        }
+    }
+
+
+    /// # Safety
+    pub unsafe fn try_collect_garbage_other_than<T: GC>(gc: Gc<T>) {
+        if BLOCK_COUNT.load(Relaxed) >= (2 * POST_BLOCK_COUNT.load(Relaxed)) {
+            let root = Root::from_gc(gc);
+            internals::run_evac();
+            
+        // unsafe { &*(root.trace_at.ptr.load(Relaxed) as *const T) }
+        }
     }
 }
 
