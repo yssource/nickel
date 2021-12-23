@@ -99,6 +99,7 @@ use crate::position::TermPos;
 use crate::stack::Stack;
 use crate::term::{make as mk_term, BinaryOp, MetaValue, RichTerm, StrChunk, Term, UnaryOp};
 use std::cell::{Ref, RefCell, RefMut};
+use std::ops::Deref;
 use std::rc::{Rc, Weak};
 
 /// The state of a thunk.
@@ -388,7 +389,7 @@ impl Closure {
     }
 }
 
-pub type Environment = GenericEnvironment<Ident, Thunk>;
+pub type Environment = GenericEnvironment<Ident, RootGc<Thunk>>;
 
 /// Raised when trying to build an environment from a term which is not a record.
 #[derive(Clone, Debug)]
@@ -405,7 +406,7 @@ pub fn env_add_term(env: &mut Environment, rt: RichTerm) -> Result<(), EnvBuildE
             let ext = bindings.into_iter().map(|(id, t)| {
                 (
                     id,
-                    Thunk::new(Closure::atomic_closure(t), IdentKind::Record()),
+                    RootGc::new(Thunk::new(Closure::atomic_closure(t), IdentKind::Record())),
                 )
             });
 
@@ -422,7 +423,7 @@ pub fn env_add(env: &mut Environment, id: Ident, rt: RichTerm, local_env: Enviro
         body: rt,
         env: local_env,
     };
-    env.insert(id, Thunk::new(closure, IdentKind::Let()));
+    env.insert(id, RootGc::new(Thunk::new(closure, IdentKind::Let())));
 }
 
 /// Determine if a thunk is worth being put on the stack for future update.
@@ -557,10 +558,11 @@ where
 
         clos = match term {
             Term::Var(x) => {
-                let mut thunk = env
+                let thunk = env
                     .get(&x)
                     .or_else(|| global_env.get(&x))
                     .ok_or_else(|| EvalError::UnboundIdentifier(x.clone(), pos))?;
+                let mut thunk = thunk.deref().clone();
                 std::mem::drop(env); // thunk may be a 1RC pointer
 
                 if thunk.state() != ThunkState::Evaluated {
@@ -600,7 +602,7 @@ where
                     body: s,
                     env: env.clone(),
                 };
-                env.insert(x, Thunk::new(closure, IdentKind::Let()));
+                env.insert(x, RootGc::new(Thunk::new(closure, IdentKind::Let())));
                 Closure { body: t, env }
             }
             Term::Switch(exp, cases, default) => {
@@ -737,7 +739,10 @@ where
                                 body: rt.clone(),
                                 env: Environment::new(),
                             };
-                            rec_env.insert(id.clone(), Thunk::new(closure, IdentKind::Let()));
+                            rec_env.insert(
+                                id.clone(),
+                                RootGc::new(Thunk::new(closure, IdentKind::Let())),
+                            );
                             Ok(rec_env)
                         }
                     },
@@ -749,7 +754,7 @@ where
                         Term::Var(var_id) => {
                             // We already checked for unbound identifier in the previous fold,
                             // so function should always succeed
-                            let mut thunk = env.get(&var_id).unwrap();
+                            let mut thunk = env.get(&var_id).unwrap().deref().clone();
                             let mut clos = thunk.borrow_mut();
                             let free_vars = clos.body.free_vars();
                             clos.env.extend(
@@ -788,7 +793,7 @@ where
                                     let mut thunk = env.get(&var_id).ok_or_else(|| {
                                         EvalError::UnboundIdentifier(var_id.clone(), pos)
                                     })?;
-                                    let mut clos = thunk.borrow_mut();
+                                    let mut clos = RootGc::make_mut(&mut thunk).borrow_mut();
                                     let free_vars = clos.body.free_vars();
                                     clos.env.extend(
                                         rec_env
@@ -887,7 +892,7 @@ where
             Term::Fun(x, t) => {
                 if let Some((thunk, pos_app)) = stack.pop_arg_as_thunk() {
                     call_stack.push(StackElem::App(pos_app));
-                    env.insert(x, thunk);
+                    env.insert(x, RootGc::new(thunk));
                     Closure { body: t, env }
                 } else {
                     return Ok((Term::Fun(x, t), RootGc::new(env)));
@@ -1415,10 +1420,10 @@ mod tests {
         let mut resolver = DummyResolver {};
         global_env.insert(
             Ident::from("g"),
-            Thunk::new(
+            RootGc::new(Thunk::new(
                 Closure::atomic_closure(Term::Num(1.0).into()),
                 IdentKind::Let(),
-            ),
+            )),
         );
 
         let t = mk_term::let_in("x", Term::Num(2.0), mk_term::var("x"));
@@ -1438,7 +1443,7 @@ mod tests {
             .map(|(id, t)| {
                 (
                     id.into(),
-                    Thunk::new(Closure::atomic_closure(t), IdentKind::Let()),
+                    RootGc::new(Thunk::new(Closure::atomic_closure(t), IdentKind::Let())),
                 )
             })
             .collect()

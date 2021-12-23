@@ -5,6 +5,7 @@ use crate::identifier::Ident;
 use crate::term::{Contract, RichTerm, Term, TraverseMethod};
 use crate::types::{AbsType, Types};
 use codespan::FileId;
+use nickel_gc::root::RootGc;
 use simple_counter::*;
 use std::path::PathBuf;
 
@@ -512,7 +513,7 @@ impl Closurizable for RichTerm {
                 body: self,
                 env: with_env,
             };
-            Thunk::new(closure, IdentKind::Record())
+            RootGc::new(Thunk::new(closure, IdentKind::Record()))
         });
 
         env.insert(var.clone(), thunk);

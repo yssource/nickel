@@ -32,6 +32,30 @@ impl<T: GC> RootGc<T> {
     pub fn as_ptr(root: &RootGc<T>) -> *const T {
         root.deref()
     }
+
+    pub fn get_mut(root: &mut RootGc<T>) -> Option<&mut T> {
+        let inner = unsafe { root.root.inner.as_ref() };
+        if inner.ref_count.get() == 1 {
+            Some(unsafe { &mut *(inner.ptr.get() as *mut u8 as *mut T) })
+        } else {
+            None
+        }
+    }
+
+    pub fn make_mut(root: &mut RootGc<T>) -> &mut T
+    where
+        T: Clone,
+    {
+        let inner = unsafe { root.root.inner.as_ref() };
+        if inner.ref_count.get() == 1 {
+            unsafe { &mut *(inner.ptr.get() as *mut u8 as *mut T) }
+        } else {
+            *root = RootGc::new((**root).clone());
+
+            let inner = unsafe { root.root.inner.as_ref() };
+            unsafe { &mut *(inner.ptr.get() as *mut u8 as *mut T) }
+        }
+    }
 }
 
 impl<T: GC + PartialEq> PartialEq for RootGc<T> {

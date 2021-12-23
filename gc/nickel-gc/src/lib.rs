@@ -1,5 +1,13 @@
 use std::{
-    any::type_name, borrow::Borrow, cell::RefCell, fmt::Debug, mem, ops::Deref, ptr, rc::Rc,
+    any::type_name,
+    borrow::Borrow,
+    cell::{RefCell, UnsafeCell},
+    collections::HashSet,
+    fmt::Debug,
+    mem,
+    ops::Deref,
+    ptr,
+    rc::Rc,
     sync::atomic::AtomicUsize,
 };
 
@@ -112,9 +120,35 @@ pub trait AsStatic {
     type Static: 'static;
 }
 
+thread_local! {
+ pub static OBJ_TRACE_STACK: UnsafeCell<Vec<(&'static str, *const u8)>> = UnsafeCell::new(Vec::with_capacity(100));
+ pub static OBJ_TRACE_SET: UnsafeCell<HashSet<*const u8>> = UnsafeCell::new(Default::default());
+}
+
 /// # Safety
 /// Derive this.
 pub unsafe trait GC {
+    fn track<F: FnOnce(&Self)>(s: &Self, f: F) {
+        OBJ_TRACE_STACK.with(|s| {
+            unsafe { &mut *s.get() }.push((type_name::<Self>(), s as *const _ as *const u8));
+        });
+        OBJ_TRACE_SET.with(|s| {
+            let cycle = !unsafe { &mut *s.get() }.insert(s as *const _ as *const u8);
+            if cycle {
+                let stack = OBJ_TRACE_STACK.with(|s| unsafe { &*s.get() });
+                panic!("Cycle detected:\n {:?}", stack)
+            }
+        });
+
+        f(s);
+
+        OBJ_TRACE_STACK.with(|s| {
+            unsafe { &mut *s.get() }.pop();
+        });
+        OBJ_TRACE_SET.with(|s| {
+            unsafe { &mut *s.get() }.remove(&(s as *const _ as *const u8));
+        });
+    }
     /// In the future this can be made const for non DSTs.
     /// # Safety
     /// Don't implement this use the derive macro.
@@ -228,7 +262,7 @@ unsafe impl GC for std::ffi::OsString {
 unsafe impl<T: GC> GC for Option<T> {
     unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         if let Some(t) = s.as_ref() {
-            T::trace(t, direct_gc_ptrs)
+            T::track(t, |t| T::trace(t, direct_gc_ptrs))
         }
     }
 }
@@ -243,20 +277,20 @@ unsafe impl<T: GC> GC for std::cell::RefCell<T> {
 unsafe impl<T: GC> GC for Rc<T> {
     unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         let t = s.deref();
-        T::trace(t, direct_gc_ptrs)
+        T::track(t, |t| T::trace(t, direct_gc_ptrs))
     }
 }
 
 unsafe impl<T: GC> GC for Box<T> {
     unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         let t = s.deref();
-        T::trace(t, direct_gc_ptrs)
+        T::track(t, |t| T::trace(t, direct_gc_ptrs))
     }
 }
 
 unsafe impl<T: GC> GC for Vec<T> {
     unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
-        s.iter().for_each(|t| T::trace(t, direct_gc_ptrs))
+        s.iter().for_each(|t| T::track(t, |t| T::trace(t, direct_gc_ptrs)))
     }
 }
 
