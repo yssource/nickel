@@ -76,9 +76,7 @@ impl Root {
     /// 1. No `Gc<T>`'s exist on this thread, unless they transitively pointed to by a `Root`.
     /// 2. No references to any `Gc`s or their contents exist in this thread.
     pub unsafe fn collect_garbage() {
-        // if BLOCK_COUNT.load(Relaxed) >= (2 * POST_BLOCK_COUNT.load(Relaxed)) {
         internals::run_evac()
-        // }
     }
 }
 
