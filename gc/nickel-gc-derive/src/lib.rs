@@ -71,6 +71,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
             .collect();
 
         let e = quote! {
+            dbg!(std::any::type_name::<Self>());
             #(nickel_gc::GC::trace(#args, direct_gc_ptrs); )*
         };
 

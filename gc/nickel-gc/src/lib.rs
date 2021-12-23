@@ -1,5 +1,5 @@
 use std::{
-    any::type_name, borrow::Borrow, fmt::Debug, mem, ops::Deref, ptr, rc::Rc,
+    any::type_name, borrow::Borrow, cell::RefCell, fmt::Debug, mem, ops::Deref, ptr, rc::Rc,
     sync::atomic::AtomicUsize,
 };
 
@@ -35,6 +35,10 @@ impl<'a, T> From<gc::Gc<'a, T>> for Gc<T> {
     fn from(a: gc::Gc<'a, T>) -> Self {
         unsafe { mem::transmute(a) }
     }
+}
+
+impl<T: AsStatic> AsStatic for Gc<T> {
+    type Static = Gc<T::Static>;
 }
 
 unsafe impl<'g, T: GC> GC for Gc<T> {
@@ -122,6 +126,7 @@ pub unsafe trait GC {
     /// For Nickel I don't think we need that complexity.
     /// FIXME this should be false, but I don't have time to fix it.
     const SAFE_TO_DROP: bool = true;
+    const GC_COUNT: u16 = 1;
 }
 
 #[macro_export]
@@ -134,6 +139,11 @@ macro_rules! unsafe_impl_gc_static {
             $ty: 'static,
         {
             const SAFE_TO_DROP: bool = true;
+            const GC_COUNT: u16 = 0;
+        }
+
+        impl nickel_gc::AsStatic for $ty {
+            type Static = Self;
         }
     };
 }
@@ -257,6 +267,113 @@ unsafe impl<K: GC, V: GC> GC for std::collections::HashMap<K, V> {
             V::trace(v, direct_gc_ptrs);
         })
     }
+}
+
+impl<'g, A: 'g + AsStatic, B: 'g + AsStatic, C: 'g + AsStatic> AsStatic for (A, B, C) {
+    type Static = (A::Static, B::Static, C::Static);
+}
+
+impl<'g, A: 'g + AsStatic, B: 'g + AsStatic> AsStatic for (A, B) {
+    type Static = (A::Static, B::Static);
+}
+
+impl<'g, A: 'g + AsStatic> AsStatic for (A,) {
+    type Static = (A::Static,);
+}
+
+impl<T: AsStatic> AsStatic for &'static T {
+    type Static = Self;
+}
+
+impl AsStatic for usize {
+    type Static = usize;
+}
+impl AsStatic for u128 {
+    type Static = u128;
+}
+impl AsStatic for u64 {
+    type Static = u64;
+}
+impl AsStatic for u32 {
+    type Static = u32;
+}
+impl AsStatic for u16 {
+    type Static = u16;
+}
+impl AsStatic for u8 {
+    type Static = u8;
+}
+
+impl AsStatic for isize {
+    type Static = isize;
+}
+impl AsStatic for i128 {
+    type Static = i128;
+}
+impl AsStatic for i64 {
+    type Static = i64;
+}
+impl AsStatic for i32 {
+    type Static = i32;
+}
+impl AsStatic for i16 {
+    type Static = i16;
+}
+impl AsStatic for i8 {
+    type Static = i8;
+}
+
+impl AsStatic for f64 {
+    type Static = f64;
+}
+impl AsStatic for f32 {
+    type Static = f32;
+}
+
+impl AsStatic for bool {
+    type Static = bool;
+}
+impl AsStatic for char {
+    type Static = char;
+}
+
+impl AsStatic for AtomicUsize {
+    type Static = AtomicUsize;
+}
+impl AsStatic for std::sync::atomic::AtomicIsize {
+    type Static = Self;
+}
+
+impl AsStatic for String {
+    type Static = Self;
+}
+
+impl AsStatic for std::ffi::OsString {
+    type Static = Self;
+}
+
+impl<T: AsStatic> AsStatic for Option<T> {
+    type Static = Option<T::Static>;
+}
+
+impl<T: AsStatic> AsStatic for std::cell::RefCell<T> {
+    type Static = RefCell<T::Static>;
+}
+
+impl<T: AsStatic> AsStatic for Rc<T> {
+    type Static = Rc<T::Static>;
+}
+
+impl<T: AsStatic> AsStatic for Box<T> {
+    type Static = Box<T::Static>;
+}
+
+impl<T: AsStatic> AsStatic for Vec<T> {
+    type Static = Vec<T::Static>;
+}
+
+impl<K: AsStatic, V: AsStatic> AsStatic for std::collections::HashMap<K, V> {
+    type Static = std::collections::HashMap<K::Static, V::Static>;
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]

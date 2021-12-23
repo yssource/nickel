@@ -7,8 +7,9 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
+use nickel_gc::root::RootGc;
 use nickel_gc_derive::GC;
-use nickel_gc::{Gc, GC};
+use nickel_gc::GC;
 
 /// An environment as a linked-list of hashmaps.
 ///
@@ -31,7 +32,7 @@ use nickel_gc::{Gc, GC};
 #[derive(Debug, PartialEq, Default, GC)]
 pub struct Environment<K: Hash + Eq + GC, V: PartialEq + GC> {
     current: Rc<HashMap<K, V>>,
-    previous: RefCell<Option<Gc<Environment<K, V>>>>,
+    previous: RefCell<Option<RootGc<Environment<K, V>>>>,
 }
 
 impl<K: Hash + Eq + GC, V: PartialEq + GC> Clone for Environment<K, V> {
@@ -43,7 +44,7 @@ impl<K: Hash + Eq + GC, V: PartialEq + GC> Clone for Environment<K, V> {
     fn clone(&self) -> Self {
         if !self.current.is_empty() && !self.was_cloned() {
             self.previous.replace_with(|old| {
-                Some(Gc::new(Environment {
+                Some(RootGc::new(Environment {
                     current: self.current.clone(),
                     previous: RefCell::new(old.clone()),
                 }))
@@ -94,7 +95,7 @@ impl<K: Hash + Eq + GC, V: PartialEq +GC> Environment<K, V> {
                     .as_ref()
                     // SAFETY: created from Rc, so cannot be null
                     // TODO(avi) revist this
-                    .map(|prev| unsafe { NonNull::new_unchecked(Gc::as_ptr(*prev) as *mut _) })
+                    .map(|prev| unsafe { NonNull::new_unchecked(RootGc::as_ptr(prev) as *mut _) })
             },
             _marker: PhantomData,
         }
@@ -180,7 +181,7 @@ impl<'a, K: GC + 'a + Hash + Eq, V: GC + 'a + PartialEq> Iterator for EnvLayerIt
                 .as_ref()
                 // SAFETY: can safely create NonNull from Rc
                 // TODO(avi) revist this
-                .map(|prev| NonNull::new_unchecked(Gc::as_ptr(*prev) as *mut _));
+                .map(|prev| NonNull::new_unchecked(RootGc::as_ptr(prev) as *mut _));
             res
         })
     }

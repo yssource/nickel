@@ -21,6 +21,7 @@ use crate::transformations::Closurizable;
 use crate::{mk_app, mk_fun, mk_opn};
 use crate::{serialize, serialize::ExportFormat};
 use md5::digest::Digest;
+use nickel_gc::root::RootGc;
 use simple_counter::*;
 use std::iter::Extend;
 
@@ -1186,7 +1187,7 @@ fn process_binary_operation(
                     .track_arg()
                     .ok_or_else(|| EvalError::NotEnoughArgs(3, String::from("assume"), pos_op))?;
                 l.arg_pos = thunk.borrow().body.pos;
-                l.arg_thunk = Some(thunk);
+                l.arg_thunk = Some(RootGc::new(thunk));
 
                 stack.push_arg(
                     Closure::atomic_closure(RichTerm::new(Term::Lbl(l), pos2.into_inherited())),

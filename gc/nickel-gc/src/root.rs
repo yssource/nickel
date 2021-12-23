@@ -1,24 +1,82 @@
-use std::{any::type_name, cell::Cell, marker::PhantomData, mem, ops::Deref, ptr::NonNull};
+use std::{
+    any::type_name, cell::Cell, fmt::Debug, marker::PhantomData, mem, ops::Deref, ptr::NonNull,
+};
 
 use crate::{
     blocks::Header,
     gc::{self, Gc},
-    internals, AsStatic, GcInfo, GC,
+    generation::Generation,
+    internals::{self, gc_stats},
+    AsStatic, GcInfo, GC,
 };
 
 #[derive(Clone)]
-pub struct RootGc<T: 'static + GC> {
+pub struct RootGc<T: GC> {
     pub(crate) root: Root,
     _data: PhantomData<T>,
 }
 
-impl<T: GC + AsStatic> RootGc<T>
+impl<T: GC> RootGc<T> {
+    pub fn new(t: T) -> Self {
+        let gen = Generation::new();
+        RootGc::from_gc(gen.gc(t))
+    }
+
+    pub fn from_gc<O: GC>(gc: Gc<T>) -> RootGc<O> {
+        if type_name::<O>() != type_name::<T>() {
+            panic!("Miss matched types in from_gc")
+        }
+        unsafe { mem::transmute(Root::from_gc(gc)) }
+    }
+
+    pub fn as_ptr(root: &RootGc<T>) -> *const T {
+        root.deref()
+    }
+}
+
+impl<T: GC + PartialEq> PartialEq for RootGc<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.deref().eq(other.deref())
+    }
+}
+impl<T: GC + Eq> Eq for RootGc<T> {}
+
+impl<T: GC + PartialOrd> PartialOrd for RootGc<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.deref().partial_cmp(other.deref())
+    }
+}
+
+impl<T: GC + Ord> Ord for RootGc<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.deref().cmp(other.deref())
+    }
+}
+
+impl<T: GC + Debug> Debug for RootGc<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
+impl<T: GC + Default> Default for RootGc<T> {
+    fn default() -> Self {
+        RootGc::new(T::default())
+    }
+}
+
+unsafe impl<T: GC> GC for RootGc<T> {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        Root::trace(&s.root, direct_gc_ptrs)
+    }
+    const SAFE_TO_DROP: bool = true;
+}
+
+impl<T: GC + AsStatic> AsStatic for RootGc<T>
 where
     T::Static: GC,
 {
-    pub fn from_gc(gc: Gc<T>) -> RootGc<T::Static> {
-        unsafe { mem::transmute(Root::from_gc(gc)) }
-    }
+    type Static = RootGc<T::Static>;
 }
 
 /// This impl is here to help migrate.
@@ -78,6 +136,16 @@ impl Root {
     pub unsafe fn collect_garbage() {
         internals::run_evac()
     }
+
+    pub fn maybe_collect_garbage() {
+        if gc_stats::thread_block_count() > 2 * gc_stats::thread_post_block_count() {
+            unsafe { internals::run_evac() }
+        }
+    }
+}
+
+impl AsStatic for Root {
+    type Static = Self;
 }
 
 unsafe impl GC for Root {

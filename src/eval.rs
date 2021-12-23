@@ -86,8 +86,7 @@
 //! probably suboptimal for a functional language and is unable to collect cyclic data, which may
 //! appear inside recursive records in the future. An adapted garbage collector is probably
 //! something to consider at some point.
-use nickel_gc::Gc;
-use nickel_gc::root::RootGc;
+use nickel_gc::root::{Root, RootGc};
 use nickel_gc_derive::GC;
 
 use crate::cache::ImportResolver;
@@ -487,8 +486,15 @@ where
         Term::MetaValue(mut meta) => {
             if let Some(t) = meta.value.take() {
                 let pos = t.pos;
-                let (evaluated, env) =
-                    eval_closure(Closure { body: t, env: (*env).clone() }, global_env, resolver, true)?;
+                let (evaluated, env) = eval_closure(
+                    Closure {
+                        body: t,
+                        env: (*env).clone(),
+                    },
+                    global_env,
+                    resolver,
+                    true,
+                )?;
                 let substituted = subst(RichTerm::new(evaluated, pos), global_env, &env);
 
                 meta.value.replace(substituted);
@@ -534,7 +540,7 @@ where
     let mut stack = Stack::new();
 
     loop {
-
+        unsafe { Root::maybe_collect_garbage() }
 
         let Closure {
             body: RichTerm {
@@ -884,7 +890,7 @@ where
                     env.insert(x, thunk);
                     Closure { body: t, env }
                 } else {
-                    return Ok((Term::Fun(x, t), RootGc::from_gc(Gc::new(env).into())));
+                    return Ok((Term::Fun(x, t), RootGc::new(env)));
                 }
             }
             // Otherwise, this is either an ill-formed application, or we are done
@@ -899,7 +905,7 @@ where
                         pos_app,
                     ));
                 } else {
-                    return Ok((t, RootGc::from_gc(Gc::new(env).into())));
+                    return Ok((t, RootGc::new(env)));
                 }
             }
         }

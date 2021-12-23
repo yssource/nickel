@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, fmt::Debug, ops::Deref};
 
-use crate::{root::TraceAt, GC};
+use crate::{root::TraceAt, GC, AsStatic};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct Gc<'g, T>(pub &'g T, pub P);
@@ -23,6 +23,9 @@ unsafe impl<'g, T: GC> GC for Gc<'g, T> {
     }
 
     const SAFE_TO_DROP: bool = true;
+}
+impl<'g, T: AsStatic> AsStatic for Gc<'g, T> {
+    type Static = Gc<'static, T::Static>;
 }
 
 /// Just here to prevent construction of `Gc` & `Box`.

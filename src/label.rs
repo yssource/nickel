@@ -6,6 +6,7 @@ use crate::eval::Thunk;
 use crate::position::{RawSpan, TermPos};
 use crate::types::{AbsType, Types};
 use codespan::Files;
+use nickel_gc::root::RootGc;
 use nickel_gc_derive::GC;
 
 pub mod ty_path {
@@ -241,7 +242,7 @@ pub struct Label {
     /// The position of the original contract.
     pub span: RawSpan,
     /// The thunk corresponding to the value being checked. Set at run-time by the interpreter.
-    pub arg_thunk: Option<Thunk>,
+    pub arg_thunk: Option<RootGc<Thunk>>,
     /// The original position of the value being checked. Set at run-time by the interpreter.
     pub arg_pos: TermPos,
     /// The polarity, used for higher-order contracts, that specifies if the current contract is
