@@ -1,13 +1,17 @@
 use std::{
     alloc::{self, Layout},
+    cell::UnsafeCell,
     collections::HashMap,
+    mem::transmute,
     ops::{Deref, DerefMut},
     ptr::{self, drop_in_place},
-    mem::transmute,
     sync::atomic,
 };
 
-use crate::internals::{self, gc_stats};
+use crate::{
+    internals::{self, gc_stats},
+    root::ObjectStatus,
+};
 
 use super::{GcInfo, GcTypeId};
 
@@ -27,7 +31,7 @@ pub struct Header {
     bottom: *const u8,
     current: *const u8,
     /// This could be way faster.
-    pub evaced: HashMap<*const u8, *const u8>,
+    pub evaced: UnsafeCell<HashMap<*const u8, crate::root::ObjectStatus>>,
     /// Make debug only;
     pub checksum: [u64; 8],
 }
@@ -73,7 +77,7 @@ impl Header {
                 count: count as u16,
                 bottom: bottom as *const u8,
                 current: current as *const u8,
-                evaced: HashMap::default(),
+                evaced: UnsafeCell::new(HashMap::default()),
                 checksum: Self::CHECKSUM,
             },
         );
@@ -100,6 +104,10 @@ impl Header {
     pub fn from_ptr(ptr: usize) -> *const Header {
         let offset = ptr & (BLOCK_SIZE - 1);
         (ptr - offset) as _
+    }
+
+    pub(crate) fn from_gc<T>(gc: crate::gc::Gc<T>) -> &Header {
+        unsafe { &*Header::from_ptr(gc.0 as *const T as usize) }
     }
 
     pub fn checksum(header: *const Header) {
@@ -141,10 +149,14 @@ impl Drop for HeaderRef {
 
             for i in (total_count - alloc_count)..total_count {
                 let ptr = (bottom + (size * i)) as *const u8;
-                if !self.evaced.contains_key(&ptr) {
+                let evaced = unsafe { &mut *self.evaced.get() };
+                if let std::collections::hash_map::Entry::Occupied(mut e) = evaced.entry(ptr) {
                     unsafe {
                         (self.info.drop_fn)(ptr as *mut u8);
                     }
+                    // This is only needed for types that are not marked safe to drop.
+                    // However it is also a nice correctness check.
+                    e.insert(ObjectStatus::Dropped);
                 }
             }
         }

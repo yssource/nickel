@@ -1,8 +1,6 @@
 use std::{
-    marker::PhantomData,
-    mem,
-    rc::Rc,
-    sync::atomic::{AtomicUsize, Ordering::Relaxed}, ops::Deref,
+    any::type_name, cell::Cell, marker::PhantomData, mem, ops::Deref, ptr::NonNull,
+    sync::atomic::Ordering::Relaxed,
 };
 
 use crate::{
@@ -12,7 +10,7 @@ use crate::{
         self,
         gc_stats::{BLOCK_COUNT, POST_BLOCK_COUNT},
     },
-    AsStatic, GC,
+    AsStatic, GcInfo, GC,
 };
 
 #[derive(Clone)]
@@ -28,43 +26,41 @@ where
     pub fn from_gc(gc: Gc<T>) -> RootGc<T::Static> {
         unsafe { mem::transmute(Root::from_gc(gc)) }
     }
-
-    /// This is safe since it gaurenees
-    pub fn with<A, F: FnOnce(&T) -> A>(&self, f: F) -> A {
-        let t: &T = unsafe { &*(self.root.trace_at.ptr.load(Relaxed) as *const T) };
-        f(t)
-    }
 }
 
 /// This impl is here to help migrate.
-/// It's not less safe than the rest currently, but it cannot be made fully safe.
+/// It's not less safe than the rest of the API currently, but it cannot ever be made fully safe.
 impl<T: GC> Deref for RootGc<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*(self.root.trace_at.ptr.load(Relaxed) as *const T) }
+        unsafe { &*((self.root.inner.as_ref()).ptr.get() as *const T) }
     }
 }
 
-#[derive(Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Root {
-    pub(crate) trace_at: Rc<RootAt>,
+    /// Constructing a Root is unsafe.
+    /// FIXME make private
+    pub(crate) inner: NonNull<RootInner>,
 }
 
 impl Root {
     /// This `Root::from_gc` should be preferred over the `From` impl to aid with inference.
     pub fn from_gc<T: GC>(gc: Gc<T>) -> Root {
-        // See `TraceAt` docs for why we ignore the lint.
-        #[allow(clippy::mutable_key_type)]
-        let roots = internals::ROOTS.with(|roots| unsafe { &mut *roots.get() });
-        let trace_at = Rc::new(RootAt::of_val(gc));
-        roots.insert(trace_at.clone());
+        let roots = unsafe { &mut *Header::from_gc(gc).evaced.get() };
+        let obj_status = roots
+            .entry(gc.0 as *const T as *const u8)
+            .or_insert_with(|| {
+                ObjectStatus::Rooted(NonNull::from(Box::leak(Box::new(RootInner::new(gc)))))
+            });
 
-        let header = Header::from_ptr(trace_at.ptr.load(Relaxed));
-        // dbg!(header);
-        Header::checksum(header);
+        let inner = match obj_status {
+            ObjectStatus::Rooted(r) => *r,
+            e => panic!("Attempted to root a object with existing status: {:?}", e),
+        };
 
-        Root { trace_at }
+        Root { inner }
     }
 
     /// This is horribly unsafe!!!
@@ -85,33 +81,87 @@ impl Root {
             internals::run_evac()
         }
     }
+}
 
+unsafe impl GC for Root {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        let inner = s.inner.as_ref();
+        let ptr = inner.ptr.get();
 
-    /// # Safety
-    pub unsafe fn try_collect_garbage_other_than<T: GC>(gc: Gc<T>) {
-        if BLOCK_COUNT.load(Relaxed) >= (2 * POST_BLOCK_COUNT.load(Relaxed)) {
-            let root = Root::from_gc(gc);
-            internals::run_evac();
-            
-        // unsafe { &*(root.trace_at.ptr.load(Relaxed) as *const T) }
-        }
+        let traced_count = if inner.collection_marker.get() == internals::marker() {
+            let traced_count = inner.traced_count.get();
+            inner.traced_count.set(traced_count + 1);
+            traced_count
+        } else {
+            inner.collection_marker.set(internals::marker());
+            inner.traced_count.set(1);
+            1
+        };
+
+        let ref_count = inner.ref_count.get();
+        if traced_count == ref_count {
+            // All `Root`s live in the GC heap.
+            // Hence we can now demote them to a ordinary `Gc`
+            let header = &*Header::from_ptr(ptr as usize);
+            let evaced = &mut *header.evaced.get();
+            evaced.remove(&ptr);
+        };
+        let direct_gc_ptrs = mem::transmute::<_, *mut Vec<TraceAt>>(direct_gc_ptrs);
+        (inner.trace_fn)(ptr as *mut _, direct_gc_ptrs)
+    }
+    const SAFE_TO_DROP: bool = true;
+}
+
+impl Clone for Root {
+    fn clone(&self) -> Self {
+        let inner = unsafe { self.inner.as_ref() };
+        let ref_count = inner.ref_count.get();
+        inner.ref_count.set(ref_count + 1);
+
+        Root { inner: self.inner }
     }
 }
 
 impl Drop for Root {
     fn drop(&mut self) {
-        if Rc::strong_count(&self.trace_at) == 2 {
-            // See `TraceAt` docs for why we ignore the lint.
-            #[allow(clippy::mutable_key_type)]
-            let roots = internals::ROOTS.with(|roots| unsafe { &mut *roots.get() });
-            roots.remove(&self.trace_at);
-        }
+        let inner = unsafe { self.inner.as_ref() };
+        let ref_count = inner.ref_count.get();
+        inner.ref_count.set(ref_count - 1);
+        // Running destructors is handled by the Underlying Gc, not Root.
+        // TODO add debug assertions
     }
 }
 
 impl<'r, T: GC> From<gc::Gc<'r, T>> for Root {
     fn from(gc: gc::Gc<'r, T>) -> Self {
         Root::from_gc(gc)
+    }
+}
+
+impl<T: 'static + GC> From<RootGc<T>> for Root {
+    fn from(root: RootGc<T>) -> Self {
+        root.root
+    }
+}
+
+impl<T: 'static + GC> TryFrom<Root> for RootGc<T> {
+    type Error = String;
+
+    fn try_from(root: Root) -> Result<Self, Self::Error> {
+        let ptr = unsafe { root.inner.as_ref() }.ptr.get();
+        let header = unsafe { &*Header::from_ptr(ptr as usize) };
+        if header.info == GcInfo::of::<T>() {
+            Ok(RootGc {
+                root,
+                _data: PhantomData,
+            })
+        } else {
+            Err(format!(
+                "The Root is of type:          `{:?}`\nyou tried to convert it to a: `{}`",
+                header,
+                type_name::<T>()
+            ))
+        }
     }
 }
 
@@ -133,37 +183,55 @@ impl TraceAt {
 /// It's safe to use `RootAt` as a key,
 /// since it's impls ignore it's mutable field `ptr: AtomicUsize`.
 /// E.g. `#[allow(clippy::mutable_key_type)]`
+///
+/// This is like a Rc, but it handles cycles.
+///
+/// TODO make !Send, and !Sync
+/// See if UnsafeCell is any faster.
+/// For now I'm using Atomics with Relaxed ordering because it's simpler.
 #[derive(Debug)]
-pub struct RootAt {
+pub struct RootInner {
     /// `ptr` is a `*const T`
-    pub(crate) ptr: AtomicUsize,
+    pub(crate) ptr: Cell<*const u8>,
     pub(crate) trace_fn: fn(*mut u8, *mut Vec<TraceAt>),
+    // drop_fn: unsafe fn(*mut u8),
+    /// The marker of the collection phase asscoated with the traced_count.
+    /// Right now it's just a two space collector, hence bool.
+    collection_marker: Cell<bool>,
+    /// The number of references evacuated durring a collection phase.
+    traced_count: Cell<usize>,
+    /// This is the count of all owning references.
+    /// ref_count >= traced_count
+    ref_count: Cell<usize>,
 }
 
-impl RootAt {
-    pub fn of_val<T: GC>(t: crate::gc::Gc<T>) -> Self {
+impl RootInner {
+    fn new<T: GC>(t: crate::gc::Gc<T>) -> Self {
         let obj_ptr = t.0 as *const T;
         // dbg!(obj_ptr);
         let header = Header::from_ptr(obj_ptr as usize);
         Header::checksum(header);
 
-        RootAt {
-            ptr: AtomicUsize::new(obj_ptr as usize),
+        RootInner {
+            ptr: Cell::from(obj_ptr as *const u8),
             trace_fn: unsafe { std::mem::transmute(T::trace as usize) },
+            // drop_fn: unsafe { mem::transmute(ptr::drop_in_place::<T> as usize) },
+            collection_marker: Cell::from(internals::marker()),
+            traced_count: Cell::from(0),
+            ref_count: Cell::from(1),
         }
     }
 }
 
-impl PartialEq for RootAt {
-    fn eq(&self, other: &Self) -> bool {
-        self.trace_fn as usize == other.trace_fn as usize
-    }
-}
-
-impl Eq for RootAt {}
-
-impl std::hash::Hash for RootAt {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write_usize(self.trace_fn as usize)
-    }
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum ObjectStatus {
+    /// The object was moved to the pointer.
+    Moved(*const u8),
+    /// The object is rooted.
+    /// `RootInner.ptr` always points to the current location of the object.
+    /// If `RootInner.ptr` is in this `Block` the object has yet to be evacuated.
+    Rooted(NonNull<RootInner>),
+    /// The object's destructor has been run.
+    /// This is only needed for types that are not marked safe to drop.
+    Dropped,
 }

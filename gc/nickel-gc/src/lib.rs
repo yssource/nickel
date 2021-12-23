@@ -3,7 +3,7 @@ use std::{
     sync::atomic::AtomicUsize,
 };
 
-use root::{RootAt, TraceAt};
+use root::{RootInner, TraceAt};
 
 mod blocks;
 pub mod gc;
@@ -38,10 +38,8 @@ impl<'a, T> From<gc::Gc<'a, T>> for Gc<T> {
 }
 
 unsafe impl<'g, T: GC> GC for Gc<T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
-        unsafe {
-            (&mut *(direct_gc_ptrs as *mut Vec<TraceAt>)).push(TraceAt::of_val(&((*s).into())))
-        }
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+        (&mut *(direct_gc_ptrs as *mut Vec<TraceAt>)).push(TraceAt::of_val(&((*s).into())))
     }
 
     const SAFE_TO_DROP: bool = true;
@@ -111,10 +109,13 @@ pub trait AsStatic {
 }
 
 /// # Safety
+/// Derive this.
 pub unsafe trait GC {
-    /// TODO
     /// In the future this can be made const for non DSTs.
-    fn trace(_s: &Self, _direct_gc_ptrs: *mut Vec<()>) {}
+    /// # Safety
+    /// Don't implement this use the derive macro.
+    /// If you must implement this just call `trace` on each feild under your type.
+    unsafe fn trace(_s: &Self, _direct_gc_ptrs: *mut Vec<()>) {}
     /// If this is false we leak.
     /// This uglyness can be avoided in most cases
     /// with a cominations of the aproches I experimented with in sundial-gc.
@@ -143,7 +144,7 @@ pub struct GcInfo {
     align: u16,
     needs_drop: bool,
     drop_fn: unsafe fn(*mut u8),
-    trace_fn: unsafe fn(*const u8, *mut Vec<RootAt>),
+    trace_fn: unsafe fn(*const u8, *mut Vec<RootInner>),
     type_name: &'static str,
 }
 
@@ -161,7 +162,7 @@ impl GcInfo {
 }
 
 unsafe impl<'g, A: 'g + GC, B: 'g + GC, C: 'g + GC> GC for (A, B, C) {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         A::trace(&s.0, direct_gc_ptrs);
         B::trace(&s.1, direct_gc_ptrs);
         C::trace(&s.2, direct_gc_ptrs);
@@ -169,14 +170,14 @@ unsafe impl<'g, A: 'g + GC, B: 'g + GC, C: 'g + GC> GC for (A, B, C) {
 }
 
 unsafe impl<'g, A: 'g + GC, B: 'g + GC> GC for (A, B) {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         A::trace(&s.0, direct_gc_ptrs);
         B::trace(&s.1, direct_gc_ptrs);
     }
 }
 
 unsafe impl<'g, A: 'g + GC> GC for (A,) {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         A::trace(&s.0, direct_gc_ptrs);
     }
 }
@@ -215,7 +216,7 @@ unsafe impl GC for std::ffi::OsString {
 }
 
 unsafe impl<T: GC> GC for Option<T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         if let Some(t) = s.as_ref() {
             T::trace(t, direct_gc_ptrs)
         }
@@ -223,34 +224,34 @@ unsafe impl<T: GC> GC for Option<T> {
 }
 
 unsafe impl<T: GC> GC for std::cell::RefCell<T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         let t = s.borrow();
         T::trace(&t, direct_gc_ptrs)
     }
 }
 
 unsafe impl<T: GC> GC for Rc<T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         let t = s.deref();
         T::trace(t, direct_gc_ptrs)
     }
 }
 
 unsafe impl<T: GC> GC for Box<T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         let t = s.deref();
         T::trace(t, direct_gc_ptrs)
     }
 }
 
 unsafe impl<T: GC> GC for Vec<T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         s.iter().for_each(|t| T::trace(t, direct_gc_ptrs))
     }
 }
 
 unsafe impl<K: GC, V: GC> GC for std::collections::HashMap<K, V> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         s.iter().for_each(|(k, v)| {
             K::trace(k, direct_gc_ptrs);
             V::trace(v, direct_gc_ptrs);

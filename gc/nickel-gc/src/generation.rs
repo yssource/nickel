@@ -1,13 +1,11 @@
 use std::any::type_name;
-use std::{cell::UnsafeCell, ptr};
 use std::fmt::Debug;
-use std::sync::atomic::Ordering::Relaxed;
+use std::{cell::UnsafeCell, ptr};
 
-use crate::GcInfo;
 use crate::blocks::Header;
 use crate::root::{Root, RootGc};
-use crate::{blocks::Blocks, internals, gc::Gc, GC};
-
+use crate::GcInfo;
+use crate::{blocks::Blocks, gc::Gc, internals, GC};
 
 pub struct Generation {
     nursery: &'static UnsafeCell<Blocks>,
@@ -31,8 +29,8 @@ impl Generation {
     }
 
     pub fn from_root<T: GC + Debug>(&self, root: Root) -> Option<Gc<T>> {
-        let ptr = root.trace_at.ptr.load(Relaxed);
-        let header = unsafe { &*Header::from_ptr(ptr) };
+        let ptr = unsafe { root.inner.as_ref() }.ptr.get();
+        let header = unsafe { &*Header::from_ptr(ptr as usize) };
         if header.info == GcInfo::of::<T>() {
             unsafe { Some(Gc::new(&*(ptr as *const T))) }
         } else {
@@ -41,8 +39,8 @@ impl Generation {
     }
 
     pub fn try_from_root<T: GC + Debug>(&self, root: Root) -> Result<Gc<T>, String> {
-        let ptr = root.trace_at.ptr.load(Relaxed);
-        let header = unsafe { &*Header::from_ptr(ptr) };
+        let ptr = unsafe { root.inner.as_ref() }.ptr.get();
+        let header = unsafe { &*Header::from_ptr(ptr as usize) };
         if header.info == GcInfo::of::<T>() {
             unsafe { Ok(Gc::new(&*(ptr as *const T))) }
         } else {
@@ -54,12 +52,9 @@ impl Generation {
         }
     }
 
-    pub fn from_root_gc<T: GC , S: GC + 'static>(
-        &self,
-        root: RootGc<S>,
-    ) -> Option<Gc<T>> {
-        let ptr = root.root.trace_at.ptr.load(Relaxed);
-        let header = unsafe { &*Header::from_ptr(ptr) };
+    pub fn from_root_gc<T: GC, S: GC + 'static>(&self, root: RootGc<S>) -> Option<Gc<T>> {
+        let ptr = unsafe { root.root.inner.as_ref() }.ptr.get();
+        let header = unsafe { &*Header::from_ptr(ptr as usize) };
         if header.info == GcInfo::of::<T>() {
             unsafe { Some(Gc::new(&*(ptr as *const T))) }
         } else {

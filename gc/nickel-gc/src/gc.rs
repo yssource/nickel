@@ -1,7 +1,6 @@
-use std::{ops::Deref, borrow::Borrow, fmt::Debug};
+use std::{borrow::Borrow, fmt::Debug, ops::Deref};
 
-use crate::{GC, root::TraceAt};
-
+use crate::{root::TraceAt, GC};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub struct Gc<'g, T>(pub &'g T, pub P);
@@ -17,10 +16,10 @@ impl<'g, T> Gc<'g, T> {
 }
 
 unsafe impl<'g, T: GC> GC for Gc<'g, T> {
-    fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+    unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
         // TODO this seems like it could cause issues, since `GC: Copy`.
         // Fix it by replacing `&self` with `*const Self`
-        unsafe { &mut *(direct_gc_ptrs as *mut Vec<TraceAt>) }.push(TraceAt::of_val(s))
+        { &mut *(direct_gc_ptrs as *mut Vec<TraceAt>) }.push(TraceAt::of_val(s))
     }
 
     const SAFE_TO_DROP: bool = true;

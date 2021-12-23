@@ -228,7 +228,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
 
     quote! {
         unsafe impl #impl_generics nickel_gc::GC for #top_name #ty_generics #where_clause {
-            fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
+            unsafe fn trace(s: &Self, direct_gc_ptrs: *mut Vec<()>) {
                 #trace
             }
         }
@@ -239,7 +239,7 @@ fn trace_impl(input: DeriveInput) -> TokenStream {
     }
 }
 
-// #[test]
+#[test]
 fn binary_tree_derive_test() {
     let input: DeriveInput = parse_quote! {
          pub enum BinaryTree<'r, K, V> {
@@ -253,7 +253,7 @@ fn binary_tree_derive_test() {
     eprintln!("{}", ts);
 }
 
-// #[test]
+#[test]
 fn list_derive_test() {
     let input: DeriveInput = parse_quote! {
         struct List<'g, T> {
@@ -267,7 +267,7 @@ fn list_derive_test() {
     eprintln!("{}", ts);
 }
 
-// #[test]
+#[test]
 fn counted_derive_test() {
     let input: DeriveInput = parse_quote! {
         struct Counted(&'static AtomicIsize);
@@ -277,7 +277,7 @@ fn counted_derive_test() {
     eprintln!("{}", ts);
 }
 
-// #[test]
+#[test]
 fn term_derive_test() {
     let input: DeriveInput = parse_quote! {
         enum Term {
