@@ -1,21 +1,9 @@
-use std::{
-    any::type_name,
-    cell::Cell,
-    marker::PhantomData,
-    mem,
-    ops::Deref,
-    ptr::{self, NonNull},
-    sync::atomic::Ordering::Relaxed,
-};
+use std::{any::type_name, cell::Cell, marker::PhantomData, mem, ops::Deref, ptr::NonNull};
 
 use crate::{
     blocks::Header,
     gc::{self, Gc},
-    internals::{
-        self,
-        gc_stats::{BLOCK_COUNT, POST_BLOCK_COUNT},
-    },
-    AsStatic, GcInfo, GC,
+    internals, AsStatic, GcInfo, GC,
 };
 
 #[derive(Clone)]
@@ -64,6 +52,12 @@ impl Root {
             ObjectStatus::Rooted(r) => *r,
             e => panic!("Attempted to root a object with existing status: {:?}", e),
         };
+        unsafe {
+            inner
+                .as_ref()
+                .ref_count
+                .set(inner.as_ref().ref_count.get() + 1)
+        }
 
         Root { inner }
     }
@@ -110,10 +104,13 @@ unsafe impl GC for Root {
             let header = &*Header::from_ptr(ptr as usize);
             let evaced = &mut *header.evaced.get();
             evaced.remove(&ptr);
-            Box::from_raw(inner as *const _ as *mut RootInner);
+            // Box::from_raw(inner as *const _ as *mut RootInner);
         };
         let direct_gc_ptrs = mem::transmute::<_, *mut Vec<TraceAt>>(direct_gc_ptrs);
-        (inner.trace_fn)(ptr as *mut _, direct_gc_ptrs)
+        { &mut *(direct_gc_ptrs as *mut Vec<TraceAt>) }.push(TraceAt {
+            ptr_to_gc: inner.ptr.as_ptr(),
+            trace_fn: inner.trace_fn,
+        })
     }
     const SAFE_TO_DROP: bool = true;
 }
@@ -133,7 +130,6 @@ impl Drop for Root {
         let inner = unsafe { self.inner.as_ref() };
         let ref_count = inner.ref_count.get();
         inner.ref_count.set(ref_count - 1);
-        dbg!(inner.ptr.get());
         if ref_count == 1 {
             let ptr = inner.ptr.get();
             unsafe {
@@ -224,7 +220,6 @@ pub struct RootInner {
 impl RootInner {
     fn new<T: GC>(t: crate::gc::Gc<T>) -> Self {
         let obj_ptr = t.0 as *const T;
-        // dbg!(obj_ptr);
         let header = Header::from_ptr(obj_ptr as usize);
         Header::checksum(header);
 
@@ -234,7 +229,7 @@ impl RootInner {
             // drop_fn: unsafe { mem::transmute(ptr::drop_in_place::<T> as usize) },
             collection_marker: Cell::from(internals::marker()),
             traced_count: Cell::from(0),
-            ref_count: Cell::from(1),
+            ref_count: Cell::from(0),
         }
     }
 }

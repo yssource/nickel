@@ -1,5 +1,5 @@
-use std::fmt::Debug;
 use std::sync::atomic::AtomicIsize;
+use std::{cell::RefCell, fmt::Debug};
 
 use crate::{
     gc::Gc, generation::Generation, internals::gc_stats::thread_block_count, root::Root, GC,
@@ -59,23 +59,28 @@ fn lifetimes() {
     unsafe { Root::collect_garbage() };
 }
 
-#[test]
-fn alloc() {
+thread_local! {
     static COUNTED_COUNT: AtomicIsize = AtomicIsize::new(0);
-    #[derive(Debug, GC)]
-    struct Counted(&'static AtomicIsize);
-    impl Drop for Counted {
-        fn drop(&mut self) {
-            self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-        }
+}
+#[derive(Debug, GC)]
+struct Counted(isize);
+impl Drop for Counted {
+    fn drop(&mut self) {
+        COUNTED_COUNT.with(|c| c.fetch_sub(1, std::sync::atomic::Ordering::SeqCst));
     }
-    impl Counted {
-        fn new() -> Self {
-            COUNTED_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Counted(&COUNTED_COUNT)
-        }
+}
+impl Counted {
+    fn new() -> Self {
+        Counted(COUNTED_COUNT.with(|c| c.fetch_add(1, std::sync::atomic::Ordering::SeqCst)))
     }
 
+    fn count() -> isize {
+        COUNTED_COUNT.with(|c| c.load(std::sync::atomic::Ordering::SeqCst))
+    }
+}
+
+#[test]
+fn alloc() {
     let block_count = thread_block_count();
     let gen = Generation::new();
     for _ in 0..100_000 {
@@ -100,7 +105,7 @@ fn alloc() {
     let block_count_2 = thread_block_count();
     assert!(block_count < block_count_1);
     assert_eq!(block_count_2, 0);
-    assert_eq!(0, COUNTED_COUNT.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(0, Counted::count());
 }
 
 #[test]
@@ -157,4 +162,15 @@ fn roots() {
 
     let block_count_1 = thread_block_count();
     assert_eq!(block_count, block_count_1);
+}
+
+#[test]
+fn cyclic_roots() {
+    {
+        let gen = &Generation::new();
+        let g = gen.gc((RefCell::new(None::<Root>), Counted::new()));
+        g.0 .0.replace(Some(Root::from_gc(g)));
+    }
+    unsafe { Root::collect_garbage() };
+    assert_eq!(0, Counted::count());
 }

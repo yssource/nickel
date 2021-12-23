@@ -4,7 +4,7 @@
 //! raw byte indices.  They are prefixed with Raw to differentiate them from codespan's types and
 //! indicate that they do not store human friendly data like lines and columns.
 use codespan::{ByteIndex, FileId};
-use nickel_gc::{GC, unsafe_impl_gc_static};
+use nickel_gc::unsafe_impl_gc_static;
 use std::cmp::Ordering;
 
 /// A position identified by a byte offset in a file.

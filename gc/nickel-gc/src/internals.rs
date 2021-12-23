@@ -100,7 +100,9 @@ unsafe fn evac(
     let header = &mut *(header_ptr);
     Header::checksum(header);
     if header.marked != marker {
-        panic!("Evac was called on an object in an unmarked block!")
+        // Evac was called on an object in an unmarked block.
+        // This means the object was already evacuated.
+        return old_ptr;
     }
 
     assert!((old_ptr as usize - header_ptr as usize) <= BLOCK_SIZE);
@@ -117,7 +119,6 @@ unsafe fn evac(
         Entry::Occupied(mut o) => match o.get_mut() {
             ObjectStatus::Moved(new_ptr) => *new_ptr,
             o @ ObjectStatus::Rooted(_) => {
-                dbg!(&o);
                 let new_ptr = new_nursery.alloc(header.info);
                 ptr::copy_nonoverlapping(old_ptr, new_ptr, header.info.size as usize);
                 (trace_at.trace_fn)(new_ptr, to_trace);

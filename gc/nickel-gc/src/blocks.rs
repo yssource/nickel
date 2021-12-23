@@ -48,6 +48,7 @@ impl Header {
         assert!(align.is_power_of_two());
         assert!(align <= u16::MAX.into());
         assert!(size <= u16::MAX.into());
+        assert!(size > 0);
 
         let ptr = alloc::alloc(BLOCK_LAYOUT);
         if ptr.is_null() {
@@ -84,7 +85,6 @@ impl Header {
 
         gc_stats::BLOCK_COUNT.with(|bc| bc.fetch_add(1, atomic::Ordering::Relaxed));
 
-        // dbg!(header_ptr);
         header_ptr
     }
 
@@ -161,7 +161,6 @@ impl Drop for HeaderRef {
             }
         }
 
-        dbg!(unsafe { &*self.evaced.get() });
         unsafe {
             drop_in_place(&mut self.evaced);
             alloc::dealloc(self.0 as *mut u8, BLOCK_LAYOUT);
