@@ -1,5 +1,10 @@
 use std::{
-    any::type_name, cell::Cell, marker::PhantomData, mem, ops::Deref, ptr::NonNull,
+    any::type_name,
+    cell::Cell,
+    marker::PhantomData,
+    mem,
+    ops::Deref,
+    ptr::{self, NonNull},
     sync::atomic::Ordering::Relaxed,
 };
 
@@ -77,9 +82,9 @@ impl Root {
     /// 1. No `Gc<T>`'s exist on this thread, unless they transitively pointed to by a `Root`.
     /// 2. No references to any `Gc`s or their contents exist in this thread.
     pub unsafe fn collect_garbage() {
-        if BLOCK_COUNT.load(Relaxed) >= (2 * POST_BLOCK_COUNT.load(Relaxed)) {
-            internals::run_evac()
-        }
+        // if BLOCK_COUNT.load(Relaxed) >= (2 * POST_BLOCK_COUNT.load(Relaxed)) {
+        internals::run_evac()
+        // }
     }
 }
 
@@ -105,6 +110,7 @@ unsafe impl GC for Root {
             let header = &*Header::from_ptr(ptr as usize);
             let evaced = &mut *header.evaced.get();
             evaced.remove(&ptr);
+            Box::from_raw(inner as *const _ as *mut RootInner);
         };
         let direct_gc_ptrs = mem::transmute::<_, *mut Vec<TraceAt>>(direct_gc_ptrs);
         (inner.trace_fn)(ptr as *mut _, direct_gc_ptrs)
@@ -127,6 +133,16 @@ impl Drop for Root {
         let inner = unsafe { self.inner.as_ref() };
         let ref_count = inner.ref_count.get();
         inner.ref_count.set(ref_count - 1);
+        dbg!(inner.ptr.get());
+        if ref_count == 1 {
+            let ptr = inner.ptr.get();
+            unsafe {
+                let header = &*Header::from_ptr(ptr as usize);
+                let evaced = &mut *header.evaced.get();
+                evaced.remove(&ptr);
+                Box::from_raw(inner as *const _ as *mut RootInner);
+            }
+        };
         // Running destructors is handled by the Underlying Gc, not Root.
         // TODO add debug assertions
     }

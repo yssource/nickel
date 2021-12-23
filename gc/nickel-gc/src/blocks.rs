@@ -1,7 +1,7 @@
 use std::{
     alloc::{self, Layout},
     cell::UnsafeCell,
-    collections::HashMap,
+    collections::{hash_map::Entry, HashMap},
     mem::transmute,
     ops::{Deref, DerefMut},
     ptr::{self, drop_in_place},
@@ -82,7 +82,7 @@ impl Header {
             },
         );
 
-        gc_stats::BLOCK_COUNT.fetch_add(1, atomic::Ordering::Relaxed);
+        gc_stats::BLOCK_COUNT.with(|bc| bc.fetch_add(1, atomic::Ordering::Relaxed));
 
         // dbg!(header_ptr);
         header_ptr
@@ -150,23 +150,24 @@ impl Drop for HeaderRef {
             for i in (total_count - alloc_count)..total_count {
                 let ptr = (bottom + (size * i)) as *const u8;
                 let evaced = unsafe { &mut *self.evaced.get() };
-                if let std::collections::hash_map::Entry::Occupied(mut e) = evaced.entry(ptr) {
+                if let Entry::Vacant(v) = evaced.entry(ptr) {
                     unsafe {
                         (self.info.drop_fn)(ptr as *mut u8);
                     }
                     // This is only needed for types that are not marked safe to drop.
                     // However it is also a nice correctness check.
-                    e.insert(ObjectStatus::Dropped);
+                    v.insert(ObjectStatus::Dropped);
                 }
             }
         }
 
+        dbg!(unsafe { &*self.evaced.get() });
         unsafe {
             drop_in_place(&mut self.evaced);
             alloc::dealloc(self.0 as *mut u8, BLOCK_LAYOUT);
         }
 
-        gc_stats::BLOCK_COUNT.fetch_sub(1, atomic::Ordering::Relaxed);
+        gc_stats::BLOCK_COUNT.with(|bc| bc.fetch_sub(1, atomic::Ordering::Relaxed));
     }
 }
 

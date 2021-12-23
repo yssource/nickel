@@ -7,10 +7,20 @@ use crate::internals::gc_stats::{BLOCK_COUNT, POST_BLOCK_COUNT};
 use crate::root::*;
 
 pub mod gc_stats {
-    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 
-    pub static BLOCK_COUNT: AtomicUsize = AtomicUsize::new(0);
-    pub static POST_BLOCK_COUNT: AtomicUsize = AtomicUsize::new(2);
+    pub fn thread_block_count() -> usize {
+        BLOCK_COUNT.with(|bc| bc.load(Relaxed))
+    }
+
+    pub fn thread_post_block_count() -> usize {
+        POST_BLOCK_COUNT.with(|bc| bc.load(Relaxed))
+    }
+
+    thread_local! {
+        pub static BLOCK_COUNT: AtomicUsize = AtomicUsize::new(0);
+        pub static POST_BLOCK_COUNT: AtomicUsize = AtomicUsize::new(2);
+    }
 }
 
 thread_local! {
@@ -25,9 +35,12 @@ pub(crate) fn marker() -> bool {
 
 pub unsafe fn run_evac() {
     let mut new_nursery = Default::default();
-    let mut nursery = Blocks::default();
-    NURSERY.with(|r| mem::swap(&mut *r.get(), &mut nursery));
-    let headers = nursery.blocks.iter().flat_map(|(_, blocks)| blocks.iter());
+    let mut old_nursery = Blocks::default();
+    NURSERY.with(|r| mem::swap(&mut *r.get(), &mut old_nursery));
+    let headers = old_nursery
+        .blocks
+        .iter()
+        .flat_map(|(_, blocks)| blocks.iter());
 
     let marker = MARKER.with(|m| {
         let m = &mut *m.get();
@@ -47,7 +60,11 @@ pub unsafe fn run_evac() {
                     // Make sure we're calling `T::trace` not `Root::trace`.
                     assert_eq!(
                         inner.trace_fn as usize,
-                        Header::from_ptr((*from_space_ptr) as usize) as usize
+                        Header::from_ptr((*from_space_ptr) as usize)
+                            .as_ref()
+                            .unwrap()
+                            .info
+                            .trace_fn as usize
                     );
                     Some(TraceAt {
                         ptr_to_gc: inner.ptr.as_ptr(),
@@ -68,7 +85,7 @@ pub unsafe fn run_evac() {
 
     NURSERY.with(|r| mem::swap(&mut *r.get(), &mut new_nursery));
     assert!(new_nursery.blocks.is_empty());
-    POST_BLOCK_COUNT.store(BLOCK_COUNT.load(Relaxed), Relaxed);
+    POST_BLOCK_COUNT.with(|pbc| pbc.store(BLOCK_COUNT.with(|bc| bc.load(Relaxed)), Relaxed));
 }
 
 unsafe fn evac(
@@ -77,7 +94,6 @@ unsafe fn evac(
     to_trace: &mut Vec<TraceAt>,
     marker: bool,
 ) -> *const u8 {
-
     let old_ptr = *trace_at.ptr_to_gc;
 
     let header_ptr = Header::from_ptr(old_ptr as usize) as *mut Header;
@@ -101,6 +117,7 @@ unsafe fn evac(
         Entry::Occupied(mut o) => match o.get_mut() {
             ObjectStatus::Moved(new_ptr) => *new_ptr,
             o @ ObjectStatus::Rooted(_) => {
+                dbg!(&o);
                 let new_ptr = new_nursery.alloc(header.info);
                 ptr::copy_nonoverlapping(old_ptr, new_ptr, header.info.size as usize);
                 (trace_at.trace_fn)(new_ptr, to_trace);

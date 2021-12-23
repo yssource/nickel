@@ -1,8 +1,9 @@
-use std::sync::atomic::AtomicIsize;
 use std::fmt::Debug;
+use std::sync::atomic::AtomicIsize;
 
-use crate::{internals::gc_stats, GC, gc::Gc, generation::Generation, root::Root};
-
+use crate::{
+    gc::Gc, generation::Generation, internals::gc_stats::thread_block_count, root::Root, GC,
+};
 
 mod nickel_gc {
     #[allow(unused_imports)]
@@ -46,7 +47,6 @@ impl<'g, T: GC + Debug> List<'g, T> {
     }
 }
 
-
 #[test]
 fn lifetimes() {
     let gen = Generation::new();
@@ -76,7 +76,7 @@ fn alloc() {
         }
     }
 
-    let block_count = gc_stats::BLOCK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    let block_count = thread_block_count();
     let gen = Generation::new();
     for _ in 0..100_000 {
         // for _ in 0..10 {
@@ -92,12 +92,12 @@ fn alloc() {
         gen.gc(Counted::new());
     }
 
-    let block_count_1 = gc_stats::BLOCK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    let block_count_1 = thread_block_count();
 
     drop(gen);
     unsafe { Root::collect_garbage() };
 
-    let block_count_2 = gc_stats::BLOCK_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    let block_count_2 = thread_block_count();
     assert!(block_count < block_count_1);
     assert_eq!(block_count_2, 0);
     assert_eq!(0, COUNTED_COUNT.load(std::sync::atomic::Ordering::SeqCst));
@@ -105,6 +105,7 @@ fn alloc() {
 
 #[test]
 fn roots() {
+    let block_count = thread_block_count();
     let gen = Generation::new();
     let root1 = Root::from(gen.gc(List::cons(
         &gen,
@@ -151,5 +152,9 @@ fn roots() {
     assert_eq!(&vec, &vec1);
     assert_eq!(&vec, &vec2);
 
+    drop(gen);
     unsafe { Root::collect_garbage() };
+
+    let block_count_1 = thread_block_count();
+    assert_eq!(block_count, block_count_1);
 }
